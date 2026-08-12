@@ -1,0 +1,12 @@
+{
+  "name": "ลงตัว — บัญชีคู่ของเรา",
+  "short_name": "ลงตัว",
+  "description": "จดรายรับรายจ่าย แบ่งค่าใช้จ่าย และสรุปยอดคืนกัน",
+  "lang": "th",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#f7f5ef",
+  "categories": ["finance", "productivity"]
+}
