@@ -96,7 +96,7 @@
 
 <section id="history" class="view">
 <div class="head"><div><h1>รายการทั้งหมด</h1><p>ค้นหา กรอง และแก้ไขย้อนหลังได้</p></div></div>
-<div class="filters"><input id="search" class="input" placeholder="ค้นหา Netflix, Japan..." oninput="renderHistory()"><select id="typeFilter" class="input" onchange="renderHistory()"><option value="all">ทุกประเภท</option><option value="expense">รายจ่าย</option><option value="income">รายรับ</option><option value="saving">เงินเก็บ</option></select><select id="ownerFilter" class="input" onchange="renderHistory()"><option value="all">ทุกคน</option><option value="Pao">เปา</option><option value="Tim">ติม</option><option value="Both">ทั้งคู่</option></select><select id="projectFilter" class="input" onchange="renderHistory()"></select></div>
+<div class="filters"><input id="search" class="input" placeholder="ค้นหาอาหาร, เดินทาง..." oninput="renderHistory()"><select id="typeFilter" class="input" onchange="renderHistory()"><option value="all">ทุกประเภท</option><option value="expense">รายจ่าย</option><option value="income">รายรับ</option><option value="saving">เงินเก็บ</option></select><select id="ownerFilter" class="input" onchange="renderHistory()"><option value="all">ทุกคน</option><option value="Pao">เปา</option><option value="Tim">ติม</option><option value="Both">ทั้งคู่</option></select><select id="projectFilter" class="input" onchange="renderHistory()"></select></div>
 <div class="card" id="historyList"></div>
 </section>
 
@@ -107,7 +107,7 @@
 </section>
 
 <section id="projects" class="view">
-<div class="head"><div><h1>Projects</h1><p>รวมรายจ่ายพิเศษเป็นเรื่องๆ เช่น Japan Trip โดยยังเก็บ Category เดิมไว้</p></div><button class="primary" onclick="addProject()">＋ Project</button></div>
+<div class="head"><div><h1>Projects</h1><p>รวมรายจ่ายพิเศษเป็นเรื่องๆ โดยยังเก็บ Category เดิมไว้</p></div><button class="primary" onclick="addProject()">＋ Project</button></div>
 <div class="project-list" id="projectList"></div>
 </section>
 
@@ -136,12 +136,12 @@
 <div id="projectModal" class="modal" onclick="if(event.target===this)closeProjectModal()">
   <div class="modalcard">
     <h3 id="projectModalTitle">เพิ่ม Project</h3>
-    <p class="modal-sub">ใช้แยกค่าใช้จ่ายเป็นเรื่อง ๆ เช่น Japan Trip โดย Category เดิมยังอยู่เหมือนเดิม</p>
+    <p class="modal-sub">ใช้แยกค่าใช้จ่ายเป็นเรื่อง ๆ โดย Category เดิมยังอยู่เหมือนเดิม</p>
 
     <div class="project-modal-grid">
       <div class="field">
         <label>ชื่อ Project</label>
-        <input id="projectNameInput" class="input" placeholder="เช่น Japan Trip 2027">
+        <input id="projectNameInput" class="input" placeholder="เช่น ทริปพักผ่อน">
       </div>
       <div class="field">
         <label>Icon</label>
@@ -171,7 +171,7 @@
 
     <div class="project-modal-preview">
       <small>ตัวอย่างการใช้งาน</small>
-      <div style="margin-top:5px"><b id="projectPreviewName">✈️ Japan Trip 2027</b></div>
+      <div style="margin-top:5px"><b id="projectPreviewName">✈️ ทริปพักผ่อน</b></div>
       <small id="projectPreviewBudget">Budget ฿50,000 • Planning</small>
     </div>
 
@@ -185,17 +185,14 @@
 <script>
 const KEY='pao_tim_money_mock_v5';
 const DEF={
- settings:{theme:'light',defaultPayment:'KBank Visa',overallBudget:60000},
+ settings:{theme:'light',defaultPayment:'เงินสด',overallBudget:0},
  categories:{expense:['อาหาร','กาแฟ / เครื่องดื่ม','ของใช้ / Grocery','เดินทาง','ที่พัก','บ้าน / คอนโด','ค่าน้ำไฟ / Internet','Shopping','Entertainment','ท่องเที่ยว','สุขภาพ','ของขวัญ','Subscription','Finance / Fee','อื่นๆ'],income:['เงินเดือน','Bonus','Freelance','Investment','Refund','เงินได้รับ','อื่นๆ']},
- payments:['KBank Visa','SCB','PromptPay','เงินสด'],
- budgets:{'อาหาร':10000,'Shopping':6000,'เดินทาง':6000,'Subscription':2000},
- pockets:[
-  {id:'p_emergency',name:'Emergency Fund',icon:'🛟',goal:150000,openingBalance:80000,projectId:null},
-  {id:'p_japan',name:'Japan Trip',icon:'🇯🇵',goal:50000,openingBalance:12000,projectId:'proj_japan'},
-  {id:'p_house',name:'House',icon:'🏠',goal:500000,openingBalance:120000,projectId:null}
- ],
- projects:[{id:'proj_japan',name:'Japan Trip 2026',icon:'🇯🇵',budget:80000,status:'Active'}],
- transactions:[],recurring:[]
+ payments:['เงินสด','บัญชีธนาคาร','บัตรเครดิต','พร้อมเพย์'],
+ budgets:{},
+ pockets:[],
+ projects:[],
+ transactions:[],
+ recurring:[]
 };
 let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null};
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
@@ -203,24 +200,7 @@ function clone(x){return JSON.parse(JSON.stringify(x))}
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
 function load(){
  try{const x=JSON.parse(localStorage.getItem(KEY));if(x)return Object.assign(clone(DEF),x)}catch(e){}
- const s=clone(DEF),n=new Date(),D=d=>new Date(d).toISOString(),m=n.getMonth(),y=n.getFullYear();
- s.transactions=[
-  {id:id(),type:'income',amount:65000,datetime:D(new Date(y,m,1,9)),category:'เงินเดือน',payment:'SCB',owner:'Pao',note:'เงินเดือน'},
-  {id:id(),type:'expense',amount:1200,datetime:D(new Date(y,m,Math.max(1,n.getDate()-1),19,42)),category:'อาหาร',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:600,Tim:600},note:'Shabu',projectId:null},
-  {id:id(),type:'expense',amount:245,datetime:D(new Date(y,m,Math.max(1,n.getDate()-2),17,21)),category:'เดินทาง',payment:'PromptPay',owner:'Pao',payer:'Pao',split:{Pao:245,Tim:0},note:'Grab',projectId:null},
-  {id:id(),type:'expense',amount:419,datetime:D(new Date(y,m,10,8)),category:'Subscription',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:209.5,Tim:209.5},note:'Netflix',projectId:null,recurringGenerated:true},
-  {id:id(),type:'saving',amount:10000,datetime:D(new Date(y,m,2,9)),payment:'SCB',owner:'Pao',pocketId:'p_japan',projectId:'proj_japan',note:'เก็บเงินเที่ยวญี่ปุ่น'},
-  {id:id(),type:'expense',amount:18000,datetime:D(new Date(y,m,3,20)),category:'เดินทาง',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:9000,Tim:9000},note:'ตั๋วเครื่องบิน',projectId:'proj_japan'},
-  {id:id(),type:'expense',amount:12000,datetime:D(new Date(y,m,4,21)),category:'ที่พัก',payment:'KBank Visa',owner:'Both',payer:'Tim',split:{Pao:6000,Tim:6000},note:'Hotel Tokyo',projectId:'proj_japan'},
-  {id:id(),type:'expense',amount:6250,datetime:D(new Date(y,m,5,18)),category:'อาหาร',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:3125,Tim:3125},note:'ร้านอาหารญี่ปุ่น',projectId:'proj_japan'},
-  {id:id(),type:'expense',amount:3000,datetime:D(new Date(y,m,6,12)),category:'เดินทาง',payment:'PromptPay',owner:'Both',payer:'Tim',split:{Pao:1500,Tim:1500},note:'JR / Subway',projectId:'proj_japan'},
-  {id:id(),type:'expense',amount:4000,datetime:D(new Date(y,m,7,14)),category:'Entertainment',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:2000,Tim:2000},note:'Disney / Activities',projectId:'proj_japan'}
- ];
- const nextN=new Date(y,m+1,10,8), nextS=new Date(y,m+1,2,9);
- s.recurring=[
-  {id:'rec_netflix',enabled:true,frequency:'monthly',nextRun:nextN.toISOString(),template:{type:'expense',amount:419,category:'Subscription',payment:'KBank Visa',owner:'Both',payer:'Pao',split:{Pao:209.5,Tim:209.5},note:'Netflix',projectId:null}},
-  {id:'rec_japan_save',enabled:true,frequency:'monthly',nextRun:nextS.toISOString(),template:{type:'saving',amount:10000,payment:'SCB',owner:'Pao',pocketId:'p_japan',projectId:'proj_japan',note:'เก็บเงินเที่ยวญี่ปุ่น'}}
- ];
+ const s=clone(DEF);
  localStorage.setItem(KEY,JSON.stringify(s));return s
 }
 let state=load();
@@ -279,10 +259,10 @@ function projectCategoryBreakdown(pid){const xs=state.transactions.filter(t=>t.t
 function toggleProject(pid,forceOpen=false){const el=$(`project_${pid}`);if(!el)return;if(forceOpen)el.classList.add('expanded');else el.classList.toggle('expanded')}
 function renderProjects(){const el=$('projectList');el.innerHTML=state.projects.map(p=>{const spent=projectSpend(p.id),saved=projectSaving(p.id),pct=p.budget?Math.min(100,spent/p.budget*100):0,d=debtFor(state.transactions.filter(t=>t.projectId===p.id)),cats=projectCategoryBreakdown(p.id),mx=Math.max(1,...Object.values(cats)),txs=state.transactions.filter(t=>t.projectId===p.id&&t.type==='expense').sort((a,b)=>new Date(b.datetime)-new Date(a.datetime));return `<div class="card project-card" id="project_${p.id}" onclick="toggleProject('${p.id}')"><div class="project-title"><div><h3 style="margin:0">${esc(p.icon||'▣')} ${esc(p.name)}</h3><small class="muted">แตะเพื่อดู Category + Transactions</small></div><span class="status">${esc(p.status)}</span></div><div class="project-stat"><div><small>Budget</small><b>${money(p.budget)}</b></div><div><small>Actual</small><b>${money(spent)}</b></div><div><small>Saved for project</small><b class="saving">${money(saved)}</b></div></div><div class="progress ${spent>p.budget?'over':''}"><div style="width:${pct}%"></div></div><small class="muted">${spent<=p.budget?`เหลือ ${money(p.budget-spent)}`:`เกินงบ ${money(spent-p.budget)}`} • ${d===0?'ไม่มี settlement':d>0?`ติมค้างเปา ${money(d)}`:`เปาค้างติม ${money(Math.abs(d))}`}</small><div class="project-detail" onclick="event.stopPropagation()"><h4 style="margin:0 0 8px">Breakdown ตาม Category</h4>${Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="chartrow"><span>${esc(k)}</span><div class="bar"><div style="width:${v/mx*100}%"></div></div><b>${money(v)}</b></div>`).join('')}<h4 style="margin:14px 0 0">Transactions</h4>${txs.map(t=>txrow(t,true)).join('')}<div class="actions"><button class="soft" onclick="editProject('${p.id}')">แก้ Project</button><button class="danger" onclick="archiveProject('${p.id}')">Archive</button></div></div></div>`}).join('')||'<div class="card muted">ยังไม่มี Project</div>'}
 function renderSettings(){$('payments').innerHTML=state.payments.map(p=>`<div class="setrow"><div><b>${esc(p)}</b><small class="muted" style="display:block">${p===state.settings.defaultPayment?'ค่าเริ่มต้น':''}</small></div><div>${p!==state.settings.defaultPayment?`<button class="soft" onclick="setDefault('${esc(p)}')">default</button>`:''} ${state.payments.length>1?`<button class="danger" onclick="removePay('${esc(p)}')">ลบ</button>`:''}</div></div>`).join('');$('pocketSettings').innerHTML=state.pockets.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'💰')} ${esc(p.name)}</b><small class="muted" style="display:block">${money(pocketBalance(p.id))} / ${money(p.goal)}${p.projectId&&projectById(p.projectId)?` • ${projectById(p.projectId).name}`:''}</small></div><button class="soft" onclick="editPocket('${p.id}')">แก้</button></div>`).join('');$('recList').innerHTML=state.recurring.map(r=>`<div class="setrow"><div><b>↻ ${r.template.type==='saving'?'💰 ':''}${esc(r.template.note||r.template.category||'เงินเก็บ')} • ${money(r.template.amount)}</b><small class="muted" style="display:block">${r.frequency==='daily'?'ทุกวัน':r.frequency==='weekly'?'ทุกสัปดาห์':'ทุกเดือน'} • ${new Date(r.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${r.enabled?'on':''}" onclick="toggleRec('${r.id}')"></button> <button class="danger" onclick="delRec('${r.id}')">ลบ</button></div></div>`).join('')||'<span class="muted">ยังไม่มีรายการประจำ</span>';$('budSettings').innerHTML=`<div class="setrow"><div><b>งบรวม</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(state.settings.overallBudget)}</b></div>`+Object.entries(state.budgets).map(([k,v])=>{const used=currentMonthTx().filter(x=>x.type==='expense'&&x.category===k).reduce((s,x)=>s+x.amount,0);return `<div class="setrow"><div>${esc(k)}<small class="muted" style="display:block">ใช้ ${money(used)}</small></div><b>${money(v)}</b></div>`}).join('');$('projectSettings').innerHTML=state.projects.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'▣')} ${esc(p.name)}</b><small class="muted" style="display:block">${p.status} • Budget ${money(p.budget)}</small></div><button class="soft" onclick="editProject('${p.id}')">แก้</button></div>`).join('');$('themeSwitch').classList.toggle('on',state.settings.theme==='dark')}
-function addPayment(){const x=prompt('ชื่อช่องทางชำระเงิน เช่น Krungsri Visa');if(!x)return;if(state.payments.includes(x))return toastMsg('มีรายการนี้แล้ว');state.payments.push(x);save();renderAll()}
+function addPayment(){const x=prompt('ชื่อช่องทางชำระเงิน เช่น บัตรเครดิต');if(!x)return;if(state.payments.includes(x))return toastMsg('มีรายการนี้แล้ว');state.payments.push(x);save();renderAll()}
 function setDefault(p){state.settings.defaultPayment=p;save();renderAll()}
 function removePay(p){if(p===state.settings.defaultPayment)return toastMsg('เปลี่ยน default ก่อนลบ');state.payments=state.payments.filter(x=>x!==p);save();renderAll()}
-function addPocket(){const name=prompt('ชื่อ Savings Pocket เช่น Japan Trip');if(!name)return;const goal=Number(prompt('เป้าหมายเงินเก็บ (บาท)','50000')||0),opening=Number(prompt('ยอดที่มีอยู่แล้วก่อนเริ่มใช้แอป','0')||0);state.pockets.push({id:id(),name,icon:'💰',goal,openingBalance:opening,projectId:null});save();renderAll();toastMsg('เพิ่ม Pocket แล้ว')}
+function addPocket(){const name=prompt('ชื่อ Savings Pocket เช่น กองทุนฉุกเฉิน');if(!name)return;const goal=Number(prompt('เป้าหมายเงินเก็บ (บาท)','0')||0),opening=Number(prompt('ยอดที่มีอยู่แล้วก่อนเริ่มใช้แอป','0')||0);state.pockets.push({id:id(),name,icon:'💰',goal,openingBalance:opening,projectId:null});save();renderAll();toastMsg('เพิ่ม Pocket แล้ว')}
 function editPocket(pid){const p=pocketById(pid);if(!p)return;const name=prompt('ชื่อ Pocket',p.name);if(!name)return;p.name=name;p.goal=Number(prompt('เป้าหมาย',p.goal)||p.goal);p.openingBalance=Number(prompt('Opening balance',p.openingBalance)||0);const pr=prompt('Project ID ที่เชื่อม (เว้นว่างถ้าไม่เชื่อม)',p.projectId||'');p.projectId=state.projects.some(x=>x.id===pr)?pr:null;save();renderAll()}
 let editingProjectId=null;
 function addProject(){
@@ -314,7 +294,7 @@ function closeProjectModal(){
  editingProjectId=null;
 }
 function updateProjectPreview(){
- const name=$('projectNameInput')?.value.trim()||'Japan Trip 2027';
+ const name=$('projectNameInput')?.value.trim()||'ทริปพักผ่อน';
  const icon=$('projectIconInput')?.value||'✈️';
  const budget=Number($('projectBudgetInput')?.value||0);
  const status=$('projectStatusInput')?.value||'Planning';
