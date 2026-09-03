@@ -27,6 +27,11 @@ small,.label,.modal-sub{line-height:1.45}.label,.field label{font-size:13px}.bad
 .go-card{cursor:pointer;position:relative;transition:transform .18s,border-color .18s,box-shadow .18s}.go-card:after{content:"›";position:absolute;right:14px;top:12px;color:var(--muted);font-size:20px;line-height:1}.go-card:hover{border-color:var(--sage);transform:translateY(-1px)}.metrics.privacy-on{grid-template-columns:repeat(2,1fr)}
 button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focus-visible,.expand-card:focus-visible,.project-card:focus-visible,.go-card:focus-visible,.quick-main:focus-visible,.quick-edit:focus-visible,.sheet-option:focus-visible,label.soft:focus-visible,label.soft:focus-within{outline:3px solid var(--warn);outline-offset:3px}
 .input:focus-visible,.moneyinput:focus-visible{border-color:var(--warn)}.expand-card:focus-visible,.project-card:focus-visible,.go-card:focus-visible{border-color:var(--warn)}.modal[aria-hidden="true"]{display:none}.modalcard:focus{outline:none}.empty{background:var(--soft);border:1px dashed var(--line);border-radius:14px;color:var(--muted);padding:14px;line-height:1.45}.empty button{margin-top:8px}.quickrow .empty{min-width:240px}
+.category-picks{align-content:flex-start}.category-picks .choice{min-height:40px}.category-picks .cat-more{background:var(--soft);color:var(--sage);font-weight:800}.nav .add.confirm,.fab.confirm{background:var(--income);color:#fff}
+@media(max-width:520px){.category-picks .choice{flex:1 1 calc(50% - 7px);padding-inline:8px;text-align:center}}
+.back-btn{display:inline-flex;align-items:center;gap:6px;margin:0 0 14px;border:1px solid var(--line);background:var(--card);color:var(--sage);padding:9px 12px;border-radius:12px;font-weight:800;box-shadow:var(--shadow)}
+.back-btn[hidden]{display:none}
+@media(max-width:900px){.back-btn{margin-bottom:12px}}
 </style>
 </head>
 <body>
@@ -39,11 +44,12 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
     <button data-view="summary">◔ สรุป</button>
     <button data-view="projects">▣ โปรเจกต์</button>
     <button data-view="settings">⚙ ตั้งค่า</button>
-    <button data-view="add" class="add">＋ เพิ่มรายการ</button>
+    <button data-view="add" class="add" id="navAddButton">＋ เพิ่มรายการ</button>
   </nav>
   <small class="muted" style="margin-top:auto">ข้อมูลเก็บใน browser เครื่องนี้เท่านั้น</small>
 </aside>
 <main class="main"><div class="shell">
+<button id="backButton" class="back-btn" onclick="goBack()" type="button" hidden aria-label="กลับไปหน้าก่อนหน้า">‹ กลับ</button>
 
 <section id="home" class="view active">
 <div class="head"><div><h1>สวัสดี 👋</h1><p id="monthLabel"></p></div><div><button class="soft" onclick="openAddSheet()">＋ เพิ่มรายการ</button> <button class="btn" onclick="toggleTheme()" aria-label="สลับธีมมืดและสว่าง">☾</button></div></div>
@@ -83,7 +89,7 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
  <input id="amount" class="moneyinput" inputmode="decimal" placeholder="฿0" oninput="updateFormSummary()" aria-describedby="formSummary">
  <div class="formgrid">
   <div class="field"><label for="dt">วันที่และเวลา</label><input id="dt" type="datetime-local" class="input"></div>
-  <div class="field nonSaving"><label for="cat">หมวดหมู่</label><select id="cat" class="input"></select></div>
+  <div class="field nonSaving"><label id="catLabel">หมวดหมู่</label><input id="cat" type="hidden"><div id="catChoices" class="choices category-picks" role="group" aria-labelledby="catLabel"></div></div>
   <div class="field expOnly"><label for="project">โปรเจกต์ (ไม่บังคับ)</label><select id="project" class="input"></select></div>
   <div class="field expOnly"><label id="payerLabel">ใครจ่ายเงินจริง</label><div class="choices" role="group" aria-labelledby="payerLabel"><button class="choice active" data-payer="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-payer="Tim" type="button" aria-pressed="false">ติม</button></div></div>
   <div class="field"><label id="payLabel" for="pay">จ่าย / รับผ่าน</label><select id="pay" class="input"></select></div>
@@ -263,7 +269,7 @@ const DEF={
  transactions:[],
  recurring:[]
 };
-let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null};
+let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null,catExpanded:false};
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
@@ -381,7 +387,47 @@ function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt
 function who(x){return x==='Pao'?'เปา':x==='Tim'?'ติม':'ทั้งคู่'}
 function ldt(d=new Date()){const p=x=>String(x).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
 function toastMsg(s){$('toast').textContent=s;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),1900)}
-function show(v){document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===v));document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===v));renderAll();window.scrollTo({top:0,behavior:'smooth'})}
+function currentView(){return document.querySelector('.view.active')?.id||'home'}
+const viewHistory=[];
+function syncBackButton(){
+ const btn=$('backButton');if(!btn)return;
+ const canGoBack=viewHistory.length>0&&currentView()!=='home';
+ btn.hidden=!canGoBack;
+ btn.disabled=!canGoBack;
+}
+function syncAddControls(view=currentView()){
+ const inAdd=view==='add';
+ document.querySelectorAll('[data-view="add"]').forEach(b=>{b.textContent=inAdd?'✓ ยืนยัน':'＋ เพิ่มรายการ';b.setAttribute('aria-label',inAdd?'ยืนยันรายการ':'เพิ่มรายการ');b.classList.toggle('confirm',inAdd)});
+ const fab=$('fab');if(fab){fab.textContent=inAdd?'✓':'＋';fab.setAttribute('aria-label',inAdd?'ยืนยันรายการ':'เพิ่มรายการ');fab.classList.toggle('confirm',inAdd)}
+}
+function handleAddControl(){currentView()==='add'?saveTx():openAddSheet()}
+function show(v,options={}){
+ if(!$(v))return;
+ const previous=currentView();
+ const replace=options.replace||previous==='add';
+ if(previous!==v&&!options.fromBack){
+  if(v==='home'){
+   viewHistory.length=0;
+  }else if(replace){
+   while(viewHistory[viewHistory.length-1]===v)viewHistory.pop();
+  }else if(viewHistory[viewHistory.length-1]!==previous){
+   viewHistory.push(previous);
+   if(viewHistory.length>30)viewHistory.shift();
+  }
+ }
+ document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===v));
+ document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===v));
+ syncAddControls(v);
+ syncBackButton();
+ renderAll();
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+function goBack(){
+ if(visibleModal()){closeTopModal();return}
+ const previous=viewHistory.pop();
+ if(previous)show(previous,{fromBack:true});
+ syncBackButton();
+}
 function openHistory(type='all'){
  show('history');
  if($('typeFilter'))$('typeFilter').value=type;
@@ -397,7 +443,8 @@ function openAdd(typeOrRecurring='expense',withRecurring=false){
  if(typeof typeOrRecurring==='boolean')recurring=typeOrRecurring;else{type=typeOrRecurring||'expense';recurring=withRecurring}
  resetForm();setType(type);if(recurring)toggleRecurring(true);show('add');setTimeout(()=>$('amount')?.focus(),80)
 }
-document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>b.dataset.view==='add'?openAddSheet():show(b.dataset.view)));
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>b.dataset.view==='add'?handleAddControl():show(b.dataset.view)));
+document.addEventListener('click',e=>{const cat=e.target.closest?.('[data-cat-choice]');if(cat){setCategory(cat.dataset.catChoice);return}if(e.target.closest?.('[data-cat-toggle]'))toggleCats()});
 function toggleCard(id){const el=$(id);if(!el)return;el.classList.toggle('expanded');syncA11yState()}
 function projectById(id){return state.projects.find(p=>p.id===id)}
 function pocketById(id){return state.pockets.find(p=>p.id===id)}
@@ -411,17 +458,30 @@ function debtTx(){const expenseRows=state.transactions.filter(t=>t.type==='expen
 function icon(t){if(t.type==='settlement')return '✓';if(t.type==='saving')return '💰';const m={'อาหาร':'🍚','กาแฟ / เครื่องดื่ม':'☕','เดินทาง':'🚗','Shopping':'🛍️','Subscription':'📱','เงินเดือน':'💼','ท่องเที่ยว':'✈️','ที่พัก':'🏨','Entertainment':'🎢','สุขภาพ':'🏥'};return m[t.category]||(t.type==='income'?'💵':'🧾')}
 function txrow(t,actions=false){if(t.type==='settlement'){const buttons=actions?`<div class="tx-actions"><button class="danger" onclick="deleteTx('${t.id}')">ลบ</button></div>`:'';return `<div class="tx"><div class="ico">${icon(t)}</div><div><b>${esc(t.note||'เคลียร์หนี้')}</b><br><small>เคลียร์ยอด • ${who(t.from)} → ${who(t.to)} • ${new Date(t.datetime).toLocaleString('th-TH')}</small></div><div class="amt saving">✓${money(t.amount)}${buttons}</div></div>`}const rec=t.recurringGenerated?'<span class="badge">↻ ประจำ</span>':'',proj=t.projectId&&projectById(t.projectId)?`<span class="badge project-badge">${esc(projectById(t.projectId).icon||'▣')} ${esc(projectById(t.projectId).name)}</span>`:'',pocket=t.type==='saving'&&pocketById(t.pocketId)?`<span class="badge saving-badge">${esc(pocketById(t.pocketId).icon||'💰')} ${esc(pocketById(t.pocketId).name)}</span>`:'';const sign=t.type==='income'?'+':t.type==='saving'?'→':'-';const cls=t.type==='income'?'income':t.type==='saving'?'saving':'expense';const buttons=actions?`<div class="tx-actions"><button class="soft" onclick="editTx('${t.id}')">แก้ไข</button><button class="danger" onclick="deleteTx('${t.id}')">ลบ</button></div>`:'';return `<div class="tx"><div class="ico">${icon(t)}</div><div><b>${esc(t.note||t.category||'เงินเก็บ')} ${rec}${proj}${pocket}</b><br><small>${t.type==='saving'?'เงินเก็บ':esc(t.category||'รายรับ')} • ${who(t.owner)} • ${new Date(t.datetime).toLocaleString('th-TH')}</small></div><div class="amt ${cls}">${sign}${money(t.amount)}${buttons}</div></div>`}
 function renderSelects(){const curP=$('project')?.value,curSP=$('savingProject')?.value,curPocket=$('pocket')?.value;const opts='<option value="">ไม่ระบุโปรเจกต์</option>'+state.projects.filter(p=>p.status!=='Archived').map(p=>`<option value="${p.id}">${esc(p.icon||'▣')} ${esc(p.name)}</option>`).join('');if($('project')){$('project').innerHTML=opts;if([...$('project').options].some(o=>o.value===curP))$('project').value=curP}if($('savingProject')){$('savingProject').innerHTML=opts;if([...$('savingProject').options].some(o=>o.value===curSP))$('savingProject').value=curSP}if($('pocket')){$('pocket').innerHTML=state.pockets.map(p=>`<option value="${p.id}">${esc(p.icon||'💰')} ${esc(p.name)}</option>`).join('');if([...$('pocket').options].some(o=>o.value===curPocket))$('pocket').value=curPocket}if($('projectFilter')){const cv=$('projectFilter').value;$('projectFilter').innerHTML='<option value="all">ทุกโปรเจกต์</option><option value="none">ไม่มีโปรเจกต์</option>'+state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if([...$('projectFilter').options].some(o=>o.value===cv))$('projectFilter').value=cv}}
-function renderCats(){if(form.type==='saving')return;const list=state.categories[form.type]||[],cur=$('cat').value;$('cat').innerHTML=list.map(x=>`<option>${esc(x)}</option>`).join('');if(list.includes(cur))$('cat').value=cur}
+const CAT_LIMIT=10;
+function setCategory(cat){if(!$('cat'))return;$('cat').value=cat;renderCats();updateFormSummary();syncA11yState()}
+function toggleCats(){form.catExpanded=!form.catExpanded;renderCats();syncA11yState()}
+function renderCats(){
+ if(form.type==='saving'||!$('cat')||!$('catChoices'))return;
+ const list=state.categories[form.type]||[];
+ let cur=$('cat').value;
+ if(!list.includes(cur))cur=list[0]||'';
+ $('cat').value=cur;
+ const selectedIndex=list.indexOf(cur);
+ const visible=form.catExpanded?list:list.slice(0,CAT_LIMIT);
+ if(!form.catExpanded&&selectedIndex>=CAT_LIMIT&&!visible.includes(cur))visible.push(cur);
+ $('catChoices').innerHTML=visible.map(x=>`<button class="choice cat-choice ${x===cur?'active':''}" data-cat-choice="${esc(x)}" type="button" aria-pressed="${x===cur?'true':'false'}">${esc(x)}</button>`).join('')+(list.length>CAT_LIMIT?`<button class="choice cat-more" data-cat-toggle="true" type="button">${form.catExpanded?'ย่อ':'แสดงทั้งหมด'}</button>`:'');
+}
 function renderPays(){const cur=$('pay').value||state.settings.defaultPayment;$('pay').innerHTML=state.payments.map(x=>`<option>${esc(x)}</option>`).join('');if(state.payments.includes(cur))$('pay').value=cur}
-function setType(t){form.type=t;$('expTab').classList.toggle('active',t==='expense');$('incTab').classList.toggle('active',t==='income');$('savTab').classList.toggle('active',t==='saving');document.querySelectorAll('.expOnly').forEach(x=>x.style.display=t==='expense'?'grid':'none');document.querySelectorAll('.incOnly').forEach(x=>x.style.display=t==='income'?'grid':'none');document.querySelectorAll('.savingOnly').forEach(x=>x.style.display=t==='saving'?'grid':'none');document.querySelectorAll('.nonSaving').forEach(x=>x.style.display=t==='saving'?'none':'grid');$('payLabel').textContent=t==='saving'?'เงินออกจากไหน':t==='income'?'รับผ่าน':'จ่ายผ่าน';renderCats();renderSelects();updateSplit();updateFormSummary();syncA11yState()}
+function setType(t){const changed=form.type!==t;form.type=t;if(changed)form.catExpanded=false;$('expTab').classList.toggle('active',t==='expense');$('incTab').classList.toggle('active',t==='income');$('savTab').classList.toggle('active',t==='saving');document.querySelectorAll('.expOnly').forEach(x=>x.style.display=t==='expense'?'grid':'none');document.querySelectorAll('.incOnly').forEach(x=>x.style.display=t==='income'?'grid':'none');document.querySelectorAll('.savingOnly').forEach(x=>x.style.display=t==='saving'?'grid':'none');document.querySelectorAll('.nonSaving').forEach(x=>x.style.display=t==='saving'?'none':'grid');$('payLabel').textContent=t==='saving'?'เงินออกจากไหน':t==='income'?'รับผ่าน':'จ่ายผ่าน';renderCats();renderSelects();updateSplit();updateFormSummary();syncA11yState()}
 function bindChoice(attr,key){document.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{form[key]=b.dataset[attr];document.querySelectorAll(`[data-${attr}]`).forEach(x=>x.classList.toggle('active',x===b));updateSplit();updateFormSummary();syncA11yState()}))}
 bindChoice('payer','payer');bindChoice('owner','owner');bindChoice('incowner','incOwner');bindChoice('savowner','savOwner');bindChoice('split','split');
 function updateSplit(){$('splitBox').classList.toggle('show',form.type==='expense'&&form.owner==='Both');$('customSplit').style.display=form.type==='expense'&&form.owner==='Both'&&form.split==='custom'?'grid':'none'}
 function updateFormSummary(){const a=Number($('amount').value||0);if(form.type==='income'){$('formSummary').innerHTML=`รายรับนี้เป็นของ <b>${who(form.incOwner)}</b>`;return}if(form.type==='saving'){const p=pocketById($('pocket').value);const pr=projectById($('savingProject').value);$('formSummary').innerHTML=`แยก <b>${money(a)}</b> ไปเป็นเงินเก็บของ <b>${who(form.savOwner)}</b>${p?` → ${esc(p.icon||'💰')} <b>${esc(p.name)}</b>`:''}${pr?` • เชื่อม ${esc(pr.name)}`:''}<br><small class="muted">เงินก้อนนี้จะลด “เหลือใช้” แต่ไม่ถูกนับเป็นรายจ่าย</small>`;return}if(form.owner==='Both'){let p=a/2,t=a/2;if(form.split==='custom'){p=Number($('ps').value||0);t=Number($('ts').value||0)}const owed=form.payer==='Pao'?t:p;$('formSummary').innerHTML=`เปา ${money(p)} • ติม ${money(t)}<br><b>${form.payer==='Pao'?'ติมค้างเปา':'เปาค้างติม'} ${money(owed)}</b>`}else $('formSummary').innerHTML=`รายการนี้เป็นของ <b>${who(form.owner)}</b>${form.payer!==form.owner?` • ${who(form.owner)}ค้าง${who(form.payer)} ${money(a)}`:''}`}
 function toggleRecurring(force){form.recurring=typeof force==='boolean'?force:!form.recurring;$('recSwitch').classList.toggle('on',form.recurring);$('recBox').classList.toggle('show',form.recurring);if(form.recurring&&!$('nextRun').value){const d=new Date();d.setMonth(d.getMonth()+1);$('nextRun').value=ldt(d)}syncA11yState()}
-function resetForm(){form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null};$('formTitle').textContent='เพิ่มรายการ';$('formSubtitle').textContent='รายจ่าย รายรับ หรือแยกเงินไปเก็บ';$('amount').value='';$('dt').value=ldt();$('note').value='';$('ps').value='';$('ts').value='';$('nextRun').value='';document.querySelectorAll('[data-payer],[data-owner],[data-incowner],[data-savowner],[data-split]').forEach(b=>b.classList.toggle('active',b.dataset.payer==='Pao'||b.dataset.owner==='Pao'||b.dataset.incowner==='Pao'||b.dataset.savowner==='Pao'||b.dataset.split==='half'));renderPays();renderSelects();setType('expense');toggleRecurring(false);$('pay').value=state.settings.defaultPayment}
+function resetForm(){form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null,catExpanded:false};$('formTitle').textContent='เพิ่มรายการ';$('formSubtitle').textContent='รายจ่าย รายรับ หรือแยกเงินไปเก็บ';$('amount').value='';$('dt').value=ldt();$('note').value='';$('ps').value='';$('ts').value='';$('nextRun').value='';document.querySelectorAll('[data-payer],[data-owner],[data-incowner],[data-savowner],[data-split]').forEach(b=>b.classList.toggle('active',b.dataset.payer==='Pao'||b.dataset.owner==='Pao'||b.dataset.incowner==='Pao'||b.dataset.savowner==='Pao'||b.dataset.split==='half'));renderPays();renderSelects();setType('expense');toggleRecurring(false);$('pay').value=state.settings.defaultPayment}
 function saveTx(){try{const a=Number($('amount').value||0);if(!Number.isFinite(a)||a<=0)throw Error('กรุณาใส่จำนวนเงิน');if(!$('dt').value)throw Error('กรุณาเลือกวันที่');const existing=form.editId?state.transactions.find(x=>x.id===form.editId):null;let tx={id:form.editId||id(),type:form.type,amount:a,datetime:new Date($('dt').value).toISOString(),payment:$('pay').value,note:$('note').value.trim(),recurringId:existing?.recurringId||null,recurringGenerated:existing?.recurringGenerated||false};if(form.type==='income'){tx.category=$('cat').value;tx.owner=form.incOwner}else if(form.type==='saving'){if(!$('pocket').value)throw Error('กรุณาเลือก Savings Pocket');tx.owner=form.savOwner;tx.pocketId=$('pocket').value;tx.projectId=$('savingProject').value||null}else{tx.category=$('cat').value;tx.owner=form.owner;tx.payer=form.payer;tx.projectId=$('project').value||null;if(tx.owner==='Pao')tx.split={Pao:a,Tim:0};else if(tx.owner==='Tim')tx.split={Pao:0,Tim:a};else if(form.split==='half')tx.split={Pao:a/2,Tim:a/2};else{const p=Number($('ps').value||0),t=Number($('ts').value||0);if(!Number.isFinite(p)||!Number.isFinite(t)||p<0||t<0)throw Error('ยอดแบ่งต้องไม่ติดลบ');if(Math.abs(p+t-a)>.01)throw Error('ยอดแบ่งเปา + ติม ต้องเท่ากับยอดทั้งหมด');tx.split={Pao:p,Tim:t}}}let recurringTx=null;if(!form.editId&&form.recurring){if(!$('nextRun').value)throw Error('กรุณาเลือกวันเริ่มรายการประจำ');const next=new Date($('nextRun').value);if(!Number.isFinite(next.getTime()))throw Error('วันเริ่มรายการประจำไม่ถูกต้อง');recurringTx={id:id(),enabled:true,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}}}if(form.editId)state.transactions=state.transactions.map(x=>x.id===form.editId?tx:x);else{state.transactions.push(tx);if(recurringTx)state.recurring.push(recurringTx)}save();checkRecurring();toastMsg(form.editId?'แก้ไขรายการแล้ว':'บันทึกรายการแล้ว');const target=form.editId?'history':'home';resetForm();show(target)}catch(e){toastMsg(e.message)}}
-function editTx(txid){const t=state.transactions.find(x=>x.id===txid);if(!t)return;resetForm();form.editId=t.id;setType(t.type);$('formTitle').textContent=t.type==='expense'?'แก้ไขรายจ่ายย้อนหลัง':t.type==='saving'?'แก้ไขเงินเก็บ':'แก้ไขรายการ';$('formSubtitle').textContent=t.recurringGenerated?'แก้เฉพาะรอบนี้ ไม่แก้ Recurring Series':'ปรับข้อมูลรายการย้อนหลัง';$('amount').value=t.amount;$('dt').value=ldt(new Date(t.datetime));$('note').value=t.note||'';renderPays();if(state.payments.includes(t.payment))$('pay').value=t.payment;if(t.type==='expense'){renderCats();$('cat').value=t.category;form.payer=t.payer||'Pao';form.owner=t.owner||'Pao';$('project').value=t.projectId||'';document.querySelectorAll('[data-payer]').forEach(b=>b.classList.toggle('active',b.dataset.payer===form.payer));document.querySelectorAll('[data-owner]').forEach(b=>b.classList.toggle('active',b.dataset.owner===form.owner));if(t.owner==='Both'){const half=Math.abs((t.split?.Pao||0)-(t.split?.Tim||0))<.01;form.split=half?'half':'custom';document.querySelectorAll('[data-split]').forEach(b=>b.classList.toggle('active',b.dataset.split===form.split));if(!half){$('ps').value=t.split?.Pao||0;$('ts').value=t.split?.Tim||0}}}else if(t.type==='saving'){form.savOwner=t.owner;$('pocket').value=t.pocketId||state.pockets[0]?.id;$('savingProject').value=t.projectId||'';document.querySelectorAll('[data-savowner]').forEach(b=>b.classList.toggle('active',b.dataset.savowner===form.savOwner))}else{form.incOwner=t.owner;renderCats();$('cat').value=t.category;document.querySelectorAll('[data-incowner]').forEach(b=>b.classList.toggle('active',b.dataset.incowner===form.incOwner))}toggleRecurring(false);updateSplit();updateFormSummary();show('add')}
+function editTx(txid){const t=state.transactions.find(x=>x.id===txid);if(!t)return;resetForm();form.editId=t.id;setType(t.type);$('formTitle').textContent=t.type==='expense'?'แก้ไขรายจ่ายย้อนหลัง':t.type==='saving'?'แก้ไขเงินเก็บ':'แก้ไขรายการ';$('formSubtitle').textContent=t.recurringGenerated?'แก้เฉพาะรอบนี้ ไม่แก้ Recurring Series':'ปรับข้อมูลรายการย้อนหลัง';$('amount').value=t.amount;$('dt').value=ldt(new Date(t.datetime));$('note').value=t.note||'';renderPays();if(state.payments.includes(t.payment))$('pay').value=t.payment;if(t.type==='expense'){setCategory(t.category);form.payer=t.payer||'Pao';form.owner=t.owner||'Pao';$('project').value=t.projectId||'';document.querySelectorAll('[data-payer]').forEach(b=>b.classList.toggle('active',b.dataset.payer===form.payer));document.querySelectorAll('[data-owner]').forEach(b=>b.classList.toggle('active',b.dataset.owner===form.owner));if(t.owner==='Both'){const half=Math.abs((t.split?.Pao||0)-(t.split?.Tim||0))<.01;form.split=half?'half':'custom';document.querySelectorAll('[data-split]').forEach(b=>b.classList.toggle('active',b.dataset.split===form.split));if(!half){$('ps').value=t.split?.Pao||0;$('ts').value=t.split?.Tim||0}}}else if(t.type==='saving'){form.savOwner=t.owner;$('pocket').value=t.pocketId||state.pockets[0]?.id;$('savingProject').value=t.projectId||'';document.querySelectorAll('[data-savowner]').forEach(b=>b.classList.toggle('active',b.dataset.savowner===form.savOwner))}else{form.incOwner=t.owner;setCategory(t.category);document.querySelectorAll('[data-incowner]').forEach(b=>b.classList.toggle('active',b.dataset.incowner===form.incOwner))}toggleRecurring(false);updateSplit();updateFormSummary();show('add')}
 function quickAddNow(txid){const t=state.transactions.find(x=>x.id===txid);if(!t)return;const tx={...clone(t),id:id(),datetime:new Date().toISOString(),recurringId:null,recurringGenerated:false};state.transactions.push(cleanTx(tx));save();checkRecurring();renderAll();toastMsg('บันทึกซ้ำแล้ว')}
 function quickAdd(txid){const t=state.transactions.find(x=>x.id===txid);if(!t)return;editTx(txid);form.editId=null;$('formTitle').textContent='เพิ่มด่วน';$('formSubtitle').textContent='ใช้รายละเอียดเดิม แต่บันทึกเป็นรายการใหม่';$('dt').value=ldt();updateFormSummary()}
 function deleteTx(txid){if(!confirm('ลบรายการนี้?'))return;state.transactions=state.transactions.filter(x=>x.id!==txid);save();renderAll();toastMsg('ลบแล้ว')}
@@ -560,7 +620,7 @@ function applyFabPosition(persist=false){
 function initFabDrag(){
  const fab=$('fab');if(!fab)return;
  let pointerId=null,startX=0,startY=0,originX=0,originY=0,dragging=false,moved=false;
- fab.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation();moved=false;return}openAddSheet()});
+ fab.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation();moved=false;return}handleAddControl()});
  fab.addEventListener('pointerdown',e=>{
   if(e.button!==0)return;
   const rect=fab.getBoundingClientRect();
@@ -601,7 +661,7 @@ function download(content,name,type){const a=document.createElement('a');a.href=
 function exportCSV(){const rows=[['datetime','type','amount','category','payment','payer','owner','pao_share','tim_share','project','pocket','settlement_from','settlement_to','note'],...state.transactions.map(t=>[t.datetime,t.type,t.amount,t.category||'',t.payment||'',t.payer||'',t.owner||'',t.split?.Pao||'',t.split?.Tim||'',projectById(t.projectId)?.name||'',pocketById(t.pocketId)?.name||'',t.from||'',t.to||'',t.note||''])];download('\ufeff'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'),'pao-tim-money-v5.csv','text/csv;charset=utf-8')}
 function backup(){download(JSON.stringify(state,null,2),'pao-tim-money-v5-backup.json','application/json')}
 function restore(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x||typeof x!=='object'||!Array.isArray(x.transactions))throw Error();state=normalizeState(x);save();applyTheme();resetForm();renderAll();toastMsg('Restore สำเร็จ')}catch(_){toastMsg('ไฟล์ไม่ถูกต้อง')}};r.readAsText(f)}
-function renderAll(){renderPays();renderSelects();renderCats();renderHome();renderHistory();renderSummary();renderProjects();renderSettings();updateSplit();updateFormSummary();syncA11yState()}
+function renderAll(){renderPays();renderSelects();renderCats();renderHome();renderHistory();renderSummary();renderProjects();renderSettings();updateSplit();updateFormSummary();syncA11yState();syncAddControls();syncBackButton()}
 initFabDrag();applyTheme();resetForm();checkRecurring();renderAll();applyFabPosition();
 </script>
 </body></html>
