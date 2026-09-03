@@ -24,8 +24,9 @@
 :root{--muted:#626B66;--sage:#425C4A;--income:#4F765B;--expense:#9A463F;--saving:#416D7B}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 small,.label,.modal-sub{line-height:1.45}.label,.field label{font-size:13px}.badge,.status{font-size:11px}.mini3 small,.project-stat small,.debt-tx small,.sheet-option small{font-size:11px}.mini3 b,.project-stat b{font-size:13px}.debt-tx button,.quick-edit{font-size:12px}
-button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focus-visible,.expand-card:focus-visible,.project-card:focus-visible,.quick-main:focus-visible,.quick-edit:focus-visible,.sheet-option:focus-visible,label.soft:focus-visible,label.soft:focus-within{outline:3px solid var(--warn);outline-offset:3px}
-.input:focus-visible,.moneyinput:focus-visible{border-color:var(--warn)}.expand-card:focus-visible,.project-card:focus-visible{border-color:var(--warn)}.modal[aria-hidden="true"]{display:none}.modalcard:focus{outline:none}.empty{background:var(--soft);border:1px dashed var(--line);border-radius:14px;color:var(--muted);padding:14px;line-height:1.45}.empty button{margin-top:8px}.quickrow .empty{min-width:240px}
+.go-card{cursor:pointer;position:relative;transition:transform .18s,border-color .18s,box-shadow .18s}.go-card:after{content:"›";position:absolute;right:14px;top:12px;color:var(--muted);font-size:20px;line-height:1}.go-card:hover{border-color:var(--sage);transform:translateY(-1px)}.metrics.privacy-on{grid-template-columns:repeat(2,1fr)}
+button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focus-visible,.expand-card:focus-visible,.project-card:focus-visible,.go-card:focus-visible,.quick-main:focus-visible,.quick-edit:focus-visible,.sheet-option:focus-visible,label.soft:focus-visible,label.soft:focus-within{outline:3px solid var(--warn);outline-offset:3px}
+.input:focus-visible,.moneyinput:focus-visible{border-color:var(--warn)}.expand-card:focus-visible,.project-card:focus-visible,.go-card:focus-visible{border-color:var(--warn)}.modal[aria-hidden="true"]{display:none}.modalcard:focus{outline:none}.empty{background:var(--soft);border:1px dashed var(--line);border-radius:14px;color:var(--muted);padding:14px;line-height:1.45}.empty button{margin-top:8px}.quickrow .empty{min-width:240px}
 </style>
 </head>
 <body>
@@ -46,11 +47,11 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
 
 <section id="home" class="view active">
 <div class="head"><div><h1>สวัสดี 👋</h1><p id="monthLabel"></p></div><div><button class="soft" onclick="openAddSheet()">＋ เพิ่มรายการ</button> <button class="btn" onclick="toggleTheme()" aria-label="สลับธีมมืดและสว่าง">☾</button></div></div>
-<div class="grid metrics">
- <div class="card"><div class="label">เหลือใช้เดือนนี้</div><div class="value" id="available">฿0</div></div>
- <div class="card"><div class="label">รายรับ</div><div class="value income" id="income">฿0</div></div>
- <div class="card"><div class="label">รายจ่าย</div><div class="value expense" id="expense">฿0</div></div>
- <div class="card"><div class="label">เงินเก็บ <span id="rate" class="muted" style="font-size:12px"></span></div><div class="value saving" id="saving">฿0</div></div>
+<div class="grid metrics" id="homeMetrics">
+ <div class="card go-card" id="availableCard" onclick="show('summary')" role="button" tabindex="0" aria-label="ดูสรุปเหลือใช้เดือนนี้"><div class="label">เหลือใช้เดือนนี้</div><div class="value" id="available">฿0</div></div>
+ <div class="card go-card" id="incomeCard" onclick="openHistory('income')" role="button" tabindex="0" aria-label="ดูรายการรายรับ"><div class="label">รายรับ</div><div class="value income" id="income">฿0</div></div>
+ <div class="card go-card" onclick="openHistory('expense')" role="button" tabindex="0" aria-label="ดูรายการรายจ่าย"><div class="label">รายจ่าย</div><div class="value expense" id="expense">฿0</div></div>
+ <div class="card go-card" onclick="openHistory('saving')" role="button" tabindex="0" aria-label="ดูรายการเงินเก็บ"><div class="label">เงินเก็บ <span id="rate" class="muted" style="font-size:12px"></span></div><div class="value saving" id="saving">฿0</div></div>
 </div>
 <div class="grid homegrid">
  <div class="grid">
@@ -364,7 +365,7 @@ document.addEventListener('keydown',e=>{
    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
   }
  }
- const card=e.target.closest?.('.expand-card,.project-card,.detail-row[role="button"]');
+ const card=e.target.closest?.('.expand-card,.project-card,.go-card,.detail-row[role="button"]');
  if(card&&!e.target.closest('button,input,select,textarea,a,label')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();card.click()}
 });
 document.addEventListener('input',e=>{
@@ -381,6 +382,13 @@ function who(x){return x==='Pao'?'เปา':x==='Tim'?'ติม':'ทั้ง
 function ldt(d=new Date()){const p=x=>String(x).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
 function toastMsg(s){$('toast').textContent=s;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),1900)}
 function show(v){document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===v));document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===v));renderAll();window.scrollTo({top:0,behavior:'smooth'})}
+function openHistory(type='all'){
+ show('history');
+ if($('typeFilter'))$('typeFilter').value=type;
+ if($('ownerFilter'))$('ownerFilter').value='all';
+ if($('projectFilter'))$('projectFilter').value='all';
+ renderHistory();
+}
 function openAddSheet(){openModal('addSheet','.sheet-option')}
 function closeAddSheet(){closeModal('addSheet')}
 function startAdd(type='expense'){closeAddSheet();openAdd(type)}
@@ -426,10 +434,13 @@ function renderDebt(){const xs=debtTx(),tim=xs.filter(x=>x.timOwes>0),pao=xs.fil
 function settleDebt(){const net=debtFor();if(Math.abs(net)<=.01)return toastMsg('ไม่มีหนี้ที่ต้องเคลียร์');const from=net>0?'Tim':'Pao',to=net>0?'Pao':'Tim',amount=Math.abs(net);if(!confirm(`${who(from)}โอนคืน${who(to)} ${money(amount)} ใช่ไหม?`))return;state.transactions.push({id:id(),type:'settlement',amount,datetime:new Date().toISOString(),from,to,note:`เคลียร์ยอด ${who(from)} → ${who(to)}`});save();renderAll();$('debtCard')?.classList.add('expanded');toastMsg('เคลียร์หนี้แล้ว')}
 function renderHomeProjects(){const ps=state.projects.filter(p=>p.status==='Active').slice(0,3);$('homeProjects').innerHTML=ps.map(p=>{const spent=projectSpend(p.id),pct=p.budget?Math.min(100,spent/p.budget*100):0,saved=projectSaving(p.id);return `<div class="detail-row" style="cursor:pointer" tabindex="0" role="button" onclick="show('projects');setTimeout(()=>toggleProject('${p.id}',true),20)"><div class="detail-head"><div><b>${esc(p.icon||'▣')} ${esc(p.name)}</b><br><small class="muted">ใช้ ${money(spent)} • เก็บไว้ ${money(saved)}</small></div><div class="detail-right"><b>${pct.toFixed(0)}%</b><br><small class="muted">จาก ${money(p.budget)}</small></div></div><div class="progress" style="margin-top:8px"><div style="width:${pct}%"></div></div></div>`}).join('')||'<div class="empty">ยังไม่มีโปรเจกต์ที่กำลังใช้งาน<br><button class="soft" onclick="addProject()">＋ เพิ่มโปรเจกต์</button></div>'}
 function renderHome(){
- const t=totals(),hideIncome=state.settings.hideIncomeHome!==false,hidden='ซ่อนอยู่';
+ const t=totals(),hideIncome=state.settings.hideIncomeHome!==false;
  $('monthLabel').textContent=new Intl.DateTimeFormat('th-TH',{month:'long',year:'numeric'}).format(new Date());
- $('available').textContent=hideIncome?hidden:money(t.available);
- $('income').textContent=hideIncome?hidden:money(t.income);
+ $('homeMetrics')?.classList.toggle('privacy-on',hideIncome);
+ if($('availableCard'))$('availableCard').hidden=hideIncome;
+ if($('incomeCard'))$('incomeCard').hidden=hideIncome;
+ $('available').textContent=money(t.available);
+ $('income').textContent=money(t.income);
  $('expense').textContent=money(t.expense);
  $('saving').textContent=money(t.saving);
  $('rate').textContent=hideIncome?'':`อัตราเงินเก็บ ${t.rate.toFixed(1)}%`;
