@@ -1,0 +1,4 @@
+# Local UX review evidence, test ledgers, and browser sessions.
+/output/
+/.playwright-cli/
+/.codex-edge-qa-*/
