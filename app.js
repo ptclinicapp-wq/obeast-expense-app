@@ -781,7 +781,7 @@ function fieldError(id, message) {
     clearFieldError(id);
     el.setAttribute('aria-invalid','true');
     const node = document.createElement('span'); node.id = id + '-error'; node.className = 'field-error'; node.textContent = message;
-    el.insertAdjacentElement('afterend', node);
+    (el.closest('.date-control') || el).insertAdjacentElement('afterend', node);
     el.setAttribute('aria-describedby', [el.getAttribute('aria-describedby'),node.id].filter(Boolean).join(' '));
   }
   el?.closest('details')?.setAttribute('open','');

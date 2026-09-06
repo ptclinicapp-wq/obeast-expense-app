@@ -47,6 +47,36 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
 .modal{z-index:60;overscroll-behavior:contain}.modalcard{max-height:calc(100dvh - 40px - var(--keyboard-inset));overscroll-behavior:contain}.modal-sub{font-size:14px}.project-modal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.modal-open{overflow:hidden}.restore-warning{padding:14px;background:var(--danger);border-radius:12px;margin-top:16px}.restore-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}.restore-comparison>div{padding:12px;background:var(--soft);border-radius:12px}.restore-comparison small{display:block}
 .toast{left:50%;right:auto;bottom:24px;transform:translateX(-50%);width:max-content;max-width:min(520px,calc(100vw - 32px));display:flex;gap:12px;align-items:center;opacity:1;transition:none;pointer-events:none;z-index:90}.toast.show{transform:translateX(-50%)}.toast-undo{pointer-events:auto;min-height:44px;min-width:64px;border:1px solid currentColor;border-radius:10px;background:transparent;color:inherit;font-weight:700;padding:8px;flex-shrink:0}
 @media(max-width:900px){.main{padding:20px 16px calc(156px + env(safe-area-inset-bottom))}.homegrid,.settings,.project-list{grid-template-columns:minmax(0,1fr)}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.value{font-size:25px}.fab{display:flex;gap:6px;align-items:center;width:auto;height:auto;min-height:52px;padding:12px 18px;font-size:16px;font-weight:700;touch-action:manipulation;right:16px;bottom:calc(90px + env(safe-area-inset-bottom))}.fab span{font-size:24px;line-height:1}.bottom{grid-template-columns:repeat(5,minmax(0,1fr))}.bottom button{min-width:0}.toast{bottom:calc(156px + env(safe-area-inset-bottom))}body[data-view=add] .bottom,body[data-view=add] .fab{display:none}body[data-view=add] .main{padding-bottom:calc(var(--save-height) + 30px)}.save-dock{position:fixed;left:0;right:0;bottom:var(--keyboard-inset);margin:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -4px 18px rgba(0,0,0,.045)}body[data-view=add] .toast{bottom:calc(var(--save-height) + var(--keyboard-inset) + 12px)}.modal{align-items:flex-end;padding:12px 12px calc(12px + env(safe-area-inset-bottom) + var(--keyboard-inset))}.modalcard{max-height:calc(100dvh - 36px - var(--keyboard-inset))}.add-sheet{padding:0 0 var(--keyboard-inset)}}
+/* iOS adds padding to percentage-width date inputs (WebKit bug 301648).
+   Keep the border and padding on a regular element, outside the native input. */
+.date-control{
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  min-width:0;
+  padding:0 11px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+}
+.date-control>.input{
+  display:block;
+  box-sizing:border-box;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  min-height:46px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  -webkit-appearance:none;
+  appearance:none;
+  text-align:left;
+}
+.date-control>.input::-webkit-date-and-time-value{min-width:0;text-align:left}
+.date-control:focus-within{border-color:var(--warn);outline:3px solid var(--warn);outline-offset:3px}
+.date-control>.input:focus-visible{outline:none}
+.date-control:has([aria-invalid=true]){border:2px solid var(--expense)}
 /* Give native date/time controls room on phones, including recurring entries. */
 @media(max-width:600px){.entry-defaults,#recBox>.compact-row{grid-template-columns:minmax(0,1fr);gap:16px}.form .input{font-size:16px}.core-fields,.optional-details>.formgrid{grid-template-columns:minmax(0,1fr)}.core-fields>.full{grid-column:auto}.form-heading #draftStatus{font-size:12px;max-width:95px;flex-shrink:0}.project-stat{grid-template-columns:repeat(2,minmax(0,1fr))}.project-modal-grid{grid-template-columns:minmax(0,1fr)}.setrow>div:last-child{max-width:58%}}
 @media(max-width:360px){.main{padding-inline:12px}.card{padding:14px}.value{font-size:22px}.head{gap:8px}.head h1{font-size:23px}.head>button{padding-inline:10px;font-size:14px}.tx{grid-template-columns:28px minmax(0,1fr) auto;gap:7px}.tx .ico{width:28px;height:28px}.tx .amt{font-size:14px;max-width:112px}.tx-meta{font-size:13px}.mini3{gap:5px}.mini3>div{padding:7px}.mini3 small{font-size:12px}.debt-main{gap:8px}.debt-actions button{padding-inline:8px;font-size:14px}.chartrow{grid-template-columns:minmax(65px,1fr) minmax(16px,.6fr) auto;gap:6px}.chartrow>b{font-size:13px}}

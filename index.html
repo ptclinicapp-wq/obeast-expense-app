@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20260906-mobile-fields">
+<link rel="stylesheet" href="./styles.css?v=20260906-ios-date-width">
 </head>
 <body>
 <div class="app">
@@ -77,13 +77,13 @@
   <div class="field savingOnly" style="display:none"><label for="pocket">กระเป๋าเงินเก็บ</label><select id="pocket" class="input" onchange="updateFormSummary()"></select><small id="pocketBalanceHint" class="muted"></small><button class="soft" type="button" onclick="addPocket(true)">＋ สร้างกระเป๋าเงินเก็บ</button></div>
   <div class="field full"><div class="summarybox" id="formSummary" role="status" aria-live="polite"></div></div>
  </div>
- <div class="compact-row entry-defaults"><div class="field"><label for="dt">วันที่และเวลา</label><input id="dt" type="datetime-local" class="input"></div><div class="field"><label id="payLabel" for="pay">จ่ายผ่าน</label><select id="pay" class="input"></select></div></div>
+ <div class="compact-row entry-defaults"><div class="field"><label for="dt">วันที่และเวลา</label><div class="date-control"><input id="dt" type="datetime-local" class="input"></div></div><div class="field"><label id="payLabel" for="pay">จ่ายผ่าน</label><select id="pay" class="input"></select></div></div>
  <details id="optionalDetails" class="optional-details"><summary>รายละเอียดเพิ่มเติม <span class="muted">โปรเจกต์ · หมายเหตุ · รายการประจำ</span></summary><div class="formgrid">
   <div class="field full expOnly"><label for="project">โปรเจกต์ (ไม่บังคับ)</label><select id="project" class="input"></select></div>
   <div class="field full savingOnly" style="display:none"><label for="savingProject">เชื่อมกับโปรเจกต์ (ไม่บังคับ)</label><select id="savingProject" class="input" onchange="updateFormSummary()"></select></div>
   <div class="field full"><label for="note">หมายเหตุ (ไม่บังคับ)</label><textarea id="note" class="input" rows="2" placeholder="เช่น อาหารเย็น / เงินเก็บเที่ยว"></textarea></div>
   <div class="field full" id="recurringField"><label id="recurringLabel">รายการประจำ</label><div class="toggle-row"><button id="recSwitch" class="switch" onclick="toggleRecurring()" type="button" aria-label="เปิดหรือปิดรายการประจำ" aria-pressed="false" aria-controls="recBox"></button><span>บันทึกอัตโนมัติตามกำหนด</span></div><small class="muted">เมื่อกลับมาเปิดเว็บ ระบบจะบันทึกรอบที่ถึงกำหนดให้ ไม่ได้โอนเงินจริง</small></div>
-  <div class="field full box" id="recBox" aria-hidden="true"><div class="compact-row"><div class="field"><label for="freq">ความถี่</label><select id="freq" class="input"><option value="daily">ทุกวัน</option><option value="weekly">ทุกสัปดาห์</option><option value="monthly" selected>ทุกเดือน</option></select></div><div class="field"><label for="nextRun">ครั้งถัดไป</label><input id="nextRun" type="datetime-local" class="input"></div></div></div>
+  <div class="field full box" id="recBox" aria-hidden="true"><div class="compact-row"><div class="field"><label for="freq">ความถี่</label><select id="freq" class="input"><option value="daily">ทุกวัน</option><option value="weekly">ทุกสัปดาห์</option><option value="monthly" selected>ทุกเดือน</option></select></div><div class="field"><label for="nextRun">ครั้งถัดไป</label><div class="date-control"><input id="nextRun" type="datetime-local" class="input"></div></div></div></div>
  </div></details>
  <div id="formError" class="inline-error" role="alert" hidden></div>
  <div class="save-dock" id="saveDock"><div class="save-dock-inner"><span id="saveHint" class="muted"></span><div class="save-actions"><button class="btn" type="button" onclick="clearForm()">ล้างฟอร์ม</button><button class="primary" id="saveTxButton" type="submit">บันทึกรายจ่าย</button></div></div></div>
@@ -240,5 +240,5 @@
 <div class="toast" id="toast" hidden><span id="toastText" role="status" aria-live="polite"></span><button id="toastUndo" class="toast-undo" onclick="undoLastAction()" hidden>เลิกทำ</button></div>
 <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><h2 id="restoreTitle">ตรวจสอบก่อนกู้คืน</h2><p id="restoreFileName" class="muted"></p><div id="restoreComparison"></div><p class="restore-warning">ข้อมูลในไฟล์จะแทนที่รายการและการตั้งค่าปัจจุบันทั้งหมด แอปจะเก็บสำเนาก่อนแทนที่ไว้ให้ย้อนกลับได้</p><div id="restoreError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" onclick="cancelRestore()">ยกเลิก</button><button class="primary" id="confirmRestoreButton" onclick="confirmRestore()">แทนที่ด้วยข้อมูลนี้</button></div></div></div>
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
-<script src="./app.js" defer></script>
+<script src="./app.js?v=20260906-ios-date-width" defer></script>
 </body></html>
