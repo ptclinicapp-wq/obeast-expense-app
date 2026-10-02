@@ -9,7 +9,7 @@ const DEF={
  transactions:[],
  recurring:[]
 };
-let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null,catExpanded:false};
+let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false};
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function save() {
@@ -40,6 +40,12 @@ function cleanRecurring(r={}){
  rec.nextRun=Number.isFinite(next.getTime())?next.toISOString():new Date().toISOString();
  rec.dayOfMonth=Math.min(31,Math.max(1,Math.round(num(rec.dayOfMonth,fallbackDay))));
  rec.template=cleanTx(rec.template||{});
+ if(rec.kind==='installment'){
+   rec.frequency='monthly';
+   rec.totalInstallments=Math.min(600,Math.max(1,Math.round(num(rec.totalInstallments,1))));
+   rec.completedInstallments=Math.min(rec.totalInstallments,Math.max(0,Math.round(num(rec.completedInstallments))));
+   if(rec.completedInstallments===rec.totalInstallments)rec.enabled=false;
+ }
  return rec
 }
 function normalizeState(x={}){
@@ -205,9 +211,9 @@ function goBack() {
   const target = route.from || 'home';
   show(target, {replace:true, restore:true});
 }
-function openHistory(type = 'all') {
+function openHistory(type = 'all', owner = 'all') {
   $('typeFilter').value = type;
-  $('ownerFilter').value = 'all';
+  $('ownerFilter').value = owner;
   $('search').value = '';
   $('projectFilter').value = 'all';
   historyPeriod = selectedMonth;
@@ -230,12 +236,25 @@ function openAdd(typeOrRecurring = 'expense', withRecurring = false) {
   show('add', {from:previous});
   if (!form.editId && !$('amount').value) $('amount').focus({preventScroll:true});
 }
+function openInstallment() {
+  openAdd('expense');
+  setType('expense');
+  toggleInstallment(true);
+  $('amount').focus({preventScroll:true});
+  stashDraft();
+}
 document.querySelectorAll('button[data-view]').forEach(b=>b.addEventListener('click',()=>b.dataset.view==='add'?handleAddControl():show(b.dataset.view)));
 document.addEventListener('click',e=>{const cat=e.target.closest?.('[data-cat-choice]');if(cat){setCategory(cat.dataset.catChoice);return}if(e.target.closest?.('[data-cat-toggle]'))toggleCats()});
 function toggleCard(id){const el=$(id);if(!el)return;el.classList.toggle('expanded');syncA11yState()}
 function projectById(id){return state.projects.find(p=>p.id===id)}
 function pocketById(id){return state.pockets.find(p=>p.id===id)}
 function currentMonthTx() { return state.transactions.filter(t => monthKey(t.datetime) === selectedMonth); }
+function expenseShare(tx, owner = 'Pao') {
+  if (tx.type !== 'expense') return 0;
+  if (tx.split) return num(tx.split[owner]);
+  return tx.owner === owner ? tx.amount : tx.owner === 'Both' ? Math.round(tx.amount * 100 / 2) / 100 : 0;
+}
+function paoExpenseTotal(list = currentMonthTx()) { return list.reduce((sum,tx) => sum + Math.round(expenseShare(tx) * 100), 0) / 100; }
 function totals(){const x=currentMonthTx(),income=x.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0),expense=x.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0),saving=x.filter(t=>t.type==='saving').reduce((s,t)=>s+t.amount,0);return{income,expense,saving,available:income-expense-saving,rate:income?saving/income*100:0}}
 function pocketBalance(pid){const p=pocketById(pid);return Number(p?.openingBalance||0)+state.transactions.filter(t=>t.type==='saving'&&t.pocketId===pid).reduce((s,t)=>s+t.amount,0)}
 function projectSpend(pid,monthOnly=false){const list=(monthOnly?currentMonthTx():state.transactions).filter(t=>t.type==='expense'&&t.projectId===pid);return list.reduce((s,t)=>s+t.amount,0)}
@@ -243,7 +262,7 @@ function projectSaving(pid){const linkedPocketIds=new Set(state.pockets.filter(p
 function debtFor(list=state.transactions){let b=0;list.forEach(t=>{if(t.type==='expense'){if(t.payer==='Pao')b+=t.split?.Tim||0;if(t.payer==='Tim')b-=t.split?.Pao||0}else if(t.type==='settlement'){if(t.from==='Tim'&&t.to==='Pao')b-=t.amount;if(t.from==='Pao'&&t.to==='Tim')b+=t.amount}});return b}
 function debtTx(){const expenseRows=state.transactions.filter(t=>t.type==='expense').map(t=>({...t,timOwes:t.payer==='Pao'?Number(t.split?.Tim||0):0,paoOwes:t.payer==='Tim'?Number(t.split?.Pao||0):0}));const settlementRows=state.transactions.filter(t=>t.type==='settlement').map(t=>({...t,timOwes:t.from==='Pao'&&t.to==='Tim'?Number(t.amount||0):0,paoOwes:t.from==='Tim'&&t.to==='Pao'?Number(t.amount||0):0,settlement:true}));return [...expenseRows,...settlementRows].filter(t=>t.timOwes>0||t.paoOwes>0).sort((a,b)=>new Date(b.datetime)-new Date(a.datetime))}
 function icon(t){if(t.type==='settlement')return '✓';if(t.type==='saving')return '💰';const m={'อาหาร':'🍚','กาแฟ / เครื่องดื่ม':'☕','เดินทาง':'🚗','Shopping':'🛍️','Subscription':'📱','เงินเดือน':'💼','ท่องเที่ยว':'✈️','ที่พัก':'🏨','Entertainment':'🎢','สุขภาพ':'🏥'};return m[t.category]||(t.type==='income'?'💵':'🧾')}
-function txrow(t) {
+function txrow(t, shareOwner = null) {
   const title = t.note || t.category || (t.type === 'settlement' ? 'บันทึกคืนเงิน' : 'เงินเก็บ');
   const sign = t.type === 'income' ? '+' : t.type === 'saving' ? (t.amount < 0 ? '←' : '→') : t.type === 'settlement' ? '✓' : '−';
   const cls = t.type === 'income' ? 'income' : t.type === 'expense' ? 'expense' : 'saving';
@@ -251,7 +270,9 @@ function txrow(t) {
   const date = new Date(t.datetime).toLocaleDateString('th-TH', {day:'numeric',month:'short'});
   const project = projectById(t.projectId), pocket = pocketById(t.pocketId);
   const tag = t.type === 'saving' && pocket ? pocket.name : project?.name;
-  return `<button class="tx ${t.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(t.id)}" onclick="openTx(${jsArg(t.id)})" aria-label="${esc(`ดู ${title} ${money(Math.abs(t.amount))} ${owner}`)}"><span class="ico" aria-hidden="true">${icon(t)}</span><span><span class="tx-title">${esc(title)}</span><span class="tx-meta">${esc(owner)} · ${date}${t.recurringGenerated ? ' · ประจำ' : ''}</span>${tag ? `<span class="tx-tags"><span class="badge project-badge">${esc(tag)}</span></span>` : ''}</span><span class="amt ${cls}">${sign}${money(Math.abs(t.amount))}</span></button>`;
+  const shownAmount = shareOwner ? expenseShare(t,shareOwner) : Math.abs(t.amount);
+  const schedule = t.installmentNumber ? ` · ผ่อน ${t.installmentNumber}/${t.installmentTotal}` : t.recurringGenerated ? ' · ประจำ' : '';
+  return `<button class="tx ${t.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(t.id)}" onclick="openTx(${jsArg(t.id)})" aria-label="${esc(`ดู ${title} ${money(shownAmount)} ${shareOwner ? 'ส่วนของ' + who(shareOwner) : owner}`)}"><span class="ico" aria-hidden="true">${icon(t)}</span><span><span class="tx-title">${esc(title)}</span><span class="tx-meta">${esc(owner)} · ${date}${esc(schedule)}${shareOwner ? `<br>ส่วนของ${who(shareOwner)} · ยอดรวม ${money(t.amount)}` : ''}</span>${tag ? `<span class="tx-tags"><span class="badge project-badge">${esc(tag)}</span></span>` : ''}</span><span class="amt ${cls}">${sign}${money(shownAmount)}</span></button>`;
 }
 function renderSelects() {
   const existing = state.transactions.find(t => t.id === form.editId);
@@ -305,6 +326,7 @@ function setType(type) {
   if (!['expense','income','saving'].includes(type)) return;
   const changed = form.type !== type;
   form.type = type;
+  if (type !== 'expense') form.installment = false;
   if (changed) { form.catExpanded = false; $('cat').value = ''; $('categorySearch').value = ''; }
   for (const [id, value] of [['expTab','expense'],['incTab','income'],['savTab','saving']]) $(id).classList.toggle('active', value === type);
   document.querySelectorAll('.expOnly,.incOnly,.savingOnly,.nonSaving').forEach(el => {
@@ -314,13 +336,44 @@ function setType(type) {
   $('payLabel').textContent = type === 'saving' ? 'เงินออกจากไหน' : type === 'income' ? 'รับผ่าน' : 'จ่ายผ่าน';
   $('formTitle').textContent = (form.editId ? 'แก้ไข' : 'เพิ่ม') + typeLabel(type);
   $('formSubtitle').textContent = form.editId ? 'แก้เฉพาะรายการนี้ รายการประจำรอบอื่นคงเดิม' : type === 'expense' ? 'ระบุยอดและคนที่แบ่งค่าใช้จ่าย' : type === 'saving' ? 'แยกเงินไว้ในกระเป๋าออม' : 'บันทึกเงินที่ได้รับ';
-  $('recurringField').hidden = !!form.editId || (type === 'saving' && form.savingDirection === 'out');
+  syncInstallmentForm();
   clearFieldErrors();
   renderCats(); renderSelects(); updateSplit(); updateFormSummary(); syncA11yState();
 }
-function bindChoice(attr,key){document.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{form[key]=b.dataset[attr];document.querySelectorAll(`[data-${attr}]`).forEach(x=>x.classList.toggle('active',x===b));updateSplit();updateFormSummary();syncA11yState()}))}
+function bindChoice(attr,key){document.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{form[key]=b.dataset[attr];document.querySelectorAll(`[data-${attr}]`).forEach(x=>x.classList.toggle('active',x===b));updateSplit();if(attr==='split'||attr==='owner')syncCustomSplit('amount');updateFormSummary();syncA11yState()}))}
 bindChoice('payer','payer');bindChoice('owner','owner');bindChoice('incowner','incOwner');bindChoice('savowner','savOwner');bindChoice('split','split');
-function updateSplit(){$('splitBox').classList.toggle('show',form.type==='expense'&&form.owner==='Both');$('customSplit').style.display=form.type==='expense'&&form.owner==='Both'&&form.split==='custom'?'grid':'none'}
+function updateSplit(){const custom=form.type==='expense'&&form.owner==='Both'&&form.split==='custom';$('splitBox').classList.toggle('show',form.type==='expense'&&form.owner==='Both');$('customSplit').style.display=custom?'grid':'none';$('customSplitHelp').hidden=!custom}
+function syncCustomSplit(source) {
+  if (form.type !== 'expense' || form.owner !== 'Both' || form.split !== 'custom') return;
+  if (source === 'ps' || source === 'ts') form.splitAnchor = source;
+  const anchor = form.splitAnchor || ($('ps').value.trim() ? 'ps' : $('ts').value.trim() ? 'ts' : null);
+  if (!anchor) return;
+  const other = anchor === 'ps' ? 'ts' : 'ps';
+  const amount = parseMoney($('amount').value), share = parseMoney($(anchor).value);
+  if (!Number.isFinite(amount) || !Number.isFinite(share) || share > amount) { $(other).value = ''; return; }
+  $(other).value = ((Math.round(amount * 100) - Math.round(share * 100)) / 100).toFixed(2);
+  clearFieldError('ps'); clearFieldError('ts');
+}
+function syncInstallmentForm() {
+  const active = form.type === 'expense' && form.installment && !form.editId;
+  $('installmentField').hidden = form.type !== 'expense' || !!form.editId;
+  $('installmentSwitch').classList.toggle('on',active);
+  $('installmentSwitch').setAttribute('aria-pressed',String(active));
+  $('installmentBox').classList.toggle('show',active);
+  $('installmentBox').setAttribute('aria-hidden',String(!active));
+  $('amountLabel').textContent = active ? 'ยอดผ่อนต่องวด (บาท)' : 'จำนวนเงิน (บาท)';
+  $('dateLabel').textContent = active ? 'วันและเวลางวดแรก' : 'วันที่และเวลา';
+  if (form.type === 'expense' && !form.editId) {
+    $('formTitle').textContent = active ? 'เพิ่มรายการผ่อน' : 'เพิ่มรายจ่าย';
+    $('formSubtitle').textContent = active ? 'ระบุยอดต่องวด จำนวนงวด และวันเริ่มผ่อน' : 'ระบุยอดและคนที่แบ่งค่าใช้จ่าย';
+  }
+  $('recurringField').hidden = active || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
+}
+function toggleInstallment(force) {
+  form.installment = form.type === 'expense' && !form.editId && (typeof force === 'boolean' ? force : !form.installment);
+  if (form.installment) toggleRecurring(false);
+  syncInstallmentForm(); updateFormSummary();
+}
 function updateFormSummary() {
   const amount = parseMoney($('amount').value) || 0;
   let summary = '', hint = '';
@@ -339,6 +392,13 @@ function updateFormSummary() {
   $('formSummary').innerHTML = form.type === 'income' ? esc(summary) : summary;
   $('saveHint').textContent = hint;
   $('saveTxButton').textContent = `${form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
+  if (form.installment && !form.editId) {
+    const count = Number($('installmentCount').value);
+    const valid = Number.isInteger(count) && count > 0 && count <= 600;
+    $('installmentPreview').textContent = valid && amount > 0 ? `${money(amount)} × ${count} งวด · ยอดรวม ${money(Math.round(amount * 100) * count / 100)}` : 'ใส่ยอดต่องวดและจำนวนงวดเพื่อดูยอดรวม';
+    $('saveTxButton').textContent = 'บันทึกแผนผ่อน' + (valid ? ` ${count} งวด` : '');
+    $('saveHint').textContent = `ผ่อนรายเดือน ${money(amount)} / งวด`;
+  }
   if (form.type === 'saving') $('payLabel').textContent = form.savingDirection === 'out' ? 'ถอนกลับไปที่' : 'เงินออกจากไหน';
   $('savingIn').classList.toggle('active',form.savingDirection !== 'out');
   $('savingOut').classList.toggle('active',form.savingDirection === 'out');
@@ -348,6 +408,7 @@ function updateFormSummary() {
 }
 function toggleRecurring(force) {
   form.recurring = typeof force === 'boolean' ? force : !form.recurring;
+  if (form.recurring) { form.installment = false; syncInstallmentForm(); }
   $('recSwitch').classList.toggle('on',form.recurring); $('recBox').classList.toggle('show',form.recurring);
   if (form.recurring && !$('nextRun').value) {
     const next = {nextRun:new Date().toISOString(),frequency:$('freq').value,dayOfMonth:new Date().getDate()};
@@ -357,8 +418,8 @@ function toggleRecurring(force) {
 }
 function resetForm() {
   restoringDraft = true;
-  form = {type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',recurring:false,editId:null,catExpanded:false,savingDirection:'in'};
-  for (const key of ['amount','note','ps','ts','nextRun','cat','categorySearch']) $(key).value = '';
+  form = {type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false,savingDirection:'in'};
+  for (const key of ['amount','note','ps','ts','nextRun','cat','categorySearch','installmentCount']) $(key).value = '';
   $('dt').value = ldt(); $('freq').value = 'monthly';
   $('project').value = ''; $('savingProject').value = ''; $('pocket').value = '';
   $('optionalDetails').open = false;
@@ -399,7 +460,11 @@ function saveTx() {
     }
   }
   else { tx.category = $('cat').value; tx.owner = form.owner; tx.payer = form.payer; tx.split = split; tx.projectId = $('project').value || null; }
-  if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
+  if (!existing && form.type === 'expense' && form.installment) {
+    const count = Number($('installmentCount').value);
+    if (!Number.isInteger(count) || count < 1 || count > 600) return fieldError('installmentCount','ใส่จำนวนงวดเป็นจำนวนเต็มตั้งแต่ 1 ถึง 600');
+    recurring = {id:id(),kind:'installment',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:date.getDate(),totalInstallments:count,completedInstallments:0,template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+  } else if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
     const next = new Date($('nextRun').value);
     if (!Number.isFinite(next.getTime()) || next.getTime() <= Date.now()) return fieldError('nextRun', 'เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
     recurring = {id:id(),enabled:true,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
@@ -408,16 +473,18 @@ function saveTx() {
   const draftKey = form.editId || 'new';
   const target = route.from && route.from !== 'add' ? route.from : existing ? 'history' : 'home';
   const oldTx = existing ? clone(existing) : null;
+  const installment = recurring?.kind === 'installment';
   try {
     if (existing) state.transactions = state.transactions.map(t => t.id === tx.id ? tx : t);
-    else state.transactions.push(tx);
+    else if (!installment) state.transactions.push(tx);
     if (recurring) state.recurring.push(recurring);
+    if (installment) generateDueTransactions(recurring);
     save();
     removeDraft(draftKey);
     highlightTxId = tx.id;
     resetForm(); show(target, {replace:true,restore:!!existing,saved:true});
-    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : `บันทึก ${money(amount)} แล้ว`, () => {
-      state.transactions = oldTx ? state.transactions.map(t => t.id === tx.id ? oldTx : t) : state.transactions.filter(t => t.id !== tx.id);
+    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : installment ? 'บันทึกแผนผ่อนและงวดที่ถึงกำหนดแล้ว' : `บันทึก ${money(amount)} แล้ว`, () => {
+      state.transactions = oldTx ? state.transactions.map(t => t.id === tx.id ? oldTx : t) : state.transactions.filter(t => installment ? t.recurringId !== recurring.id : t.id !== tx.id);
       if (recurring) state.recurring = state.recurring.filter(r => r.id !== recurring.id);
       save(); renderAll();
     });
@@ -454,6 +521,7 @@ function quickAddNow(txid) {
   if (Date.now() - (quickGuard.get(fingerprint) || 0) < 1000) return;
   quickGuard.set(fingerprint, Date.now());
   const tx = {...clone(source),id:id(),datetime:new Date().toISOString(),recurringId:null,recurringGenerated:false};
+  delete tx.installmentNumber; delete tx.installmentTotal;
   state.transactions.push(tx);
   try {
     save(); renderAll();
@@ -484,8 +552,26 @@ function deleteTx(txid) {
   } catch (error) { toastMsg(error.message); }
 }
 function advance(r){const d=new Date(r.nextRun);if(r.frequency==='daily')d.setDate(d.getDate()+1);else if(r.frequency==='weekly')d.setDate(d.getDate()+7);else{const day=Math.min(31,Math.max(1,num(r.dayOfMonth,d.getDate())));d.setDate(1);d.setMonth(d.getMonth()+1);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))}r.nextRun=d.toISOString()}
-function checkRecurring(){let c=0,now=Date.now();state.recurring.forEach(r=>{let g=0;while(r.enabled&&new Date(r.nextRun).getTime()<=now&&g<24){state.transactions.push({...clone(r.template),id:id(),datetime:r.nextRun,recurringId:r.id,recurringGenerated:true});advance(r);c++;g++}});if(c){save();renderAll();toastMsg(`บันทึกรายการประจำอัตโนมัติ ${c} รายการ`)}}
+function generateDueTransactions(rec, now = Date.now()) {
+  const installment = rec.kind === 'installment';
+  let count = 0;
+  while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : 24)) {
+    if (installment && rec.completedInstallments >= rec.totalInstallments) { rec.enabled = false; break; }
+    const number = installment ? rec.completedInstallments + 1 : null;
+    if (!installment || !state.transactions.some(tx => tx.recurringId === rec.id && tx.installmentNumber === number)) {
+      const tx = {...clone(rec.template),id:id(),datetime:rec.nextRun,recurringId:rec.id,recurringGenerated:true};
+      if (installment) { tx.installmentNumber = number; tx.installmentTotal = rec.totalInstallments; }
+      state.transactions.push(tx);
+    }
+    if (installment) { rec.completedInstallments = number; if (number === rec.totalInstallments) rec.enabled = false; }
+    advance(rec);
+    count++;
+  }
+  return count;
+}
+function checkRecurring(){let count=0;const now=Date.now();state.recurring.forEach(rec=>{count+=generateDueTransactions(rec,now)});if(count){save();renderAll();toastMsg(`บันทึกรายการตามกำหนดอัตโนมัติ ${count} รายการ`)}}
 setInterval(() => { try { checkRecurring(); } catch (_) {} },60000);
+document.addEventListener('visibilitychange',() => { if (!document.hidden) { try { checkRecurring(); } catch (_) {} } });
 function renderPockets(target='homePockets') {
   const el = $(target); if (!el) return;
   el.innerHTML = state.pockets.map(p => {
@@ -531,7 +617,7 @@ function renderHome(){
  if($('incomeCard'))$('incomeCard').hidden=hideIncome;
  $('available').textContent=money(t.available);
  $('income').textContent=money(t.income);
- $('expense').textContent=money(t.expense);
+ $('expense').textContent=money(paoExpenseTotal());
  $('saving').textContent=money(t.saving);
  $('rate').textContent=hideIncome?'':`อัตราเงินเก็บ ${t.rate.toFixed(1)}%`;
  const visibleTx=currentMonthTx().filter(x=>!hideIncome||x.type!=='income'),r=[...visibleTx].sort((a,b)=>new Date(b.datetime)-new Date(a.datetime)).slice(0,6);
@@ -540,22 +626,22 @@ function renderHome(){
  for(const x of r){if(x.type==='settlement')continue;if(!uq.some(y=>y.type===x.type&&y.note===x.note))uq.push(x);if(uq.length===4)break}
  $('quick').innerHTML=uq.map(x=>`<div class="quick"><button class="quick-main" onclick="quickAddNow('${x.id}')"><b>${icon(x)} ${esc(x.note||x.category||'เงินเก็บ')}</b><small>${money(x.amount)} • แตะเพื่อบันทึกซ้ำ</small></button><button class="quick-edit" onclick="quickAdd('${x.id}')">แก้ก่อนบันทึก</button></div>`).join('')||'<div class="empty">เพิ่มรายการสักครั้งก่อน แล้วรายการที่ใช้ซ้ำบ่อยจะมาอยู่ตรงนี้<br><button class="soft" onclick="openAdd()">＋ เพิ่มรายการ</button></div>';
  renderPockets();
- const recur=state.recurring.filter(r=>r.enabled&&(!hideIncome||r.template.type!=='income')).sort((a,b)=>new Date(a.nextRun)-new Date(b.nextRun)).slice(0,4);
+ const recur=state.recurring.filter(r=>r.kind!=='installment'&&r.enabled&&(!hideIncome||r.template.type!=='income')).sort((a,b)=>new Date(a.nextRun)-new Date(b.nextRun)).slice(0,4);
  $('homeRecurring').innerHTML=recur.map(r=>`<div class="setrow"><div><b>↻ ${r.template.type==='saving'?'💰 ':''}${esc(r.template.note||r.template.category||'เงินเก็บ')}</b><small class="muted" style="display:block">${r.frequency==='daily'?'ทุกวัน':r.frequency==='weekly'?'ทุกสัปดาห์':'ทุกเดือน'} • ครั้งถัดไป ${new Date(r.nextRun).toLocaleDateString('th-TH')}</small></div><b class="${r.template.type==='saving'?'saving':'expense'}">${money(r.template.amount)}</b></div>`).join('')||'<div class="empty">ยังไม่มีรายการประจำ<br><button class="soft" onclick="openAdd(true)">＋ ตั้งรายการประจำ</button></div>';
  renderBudget();renderDebt();renderHomeProjects();
 }
 function renderHistory() {
   historyPeriod = $('historyPeriod').value || historyPeriod;
   const query = $('search').value.trim().toLowerCase(), type = $('typeFilter').value, owner = $('ownerFilter').value, project = $('projectFilter').value;
-  const list = [...state.transactions].filter(t => (historyPeriod === 'all' || monthKey(t.datetime) === historyPeriod) && (type === 'all' || t.type === type) && (owner === 'all' || t.owner === owner) && (project === 'all' || (project === 'none' ? !t.projectId : t.projectId === project)) && (!query || `${t.note || ''} ${t.category || ''} ${t.payment || ''} ${projectById(t.projectId)?.name || ''} ${pocketById(t.pocketId)?.name || ''}`.toLowerCase().includes(query))).sort((a,b) => new Date(b.datetime) - new Date(a.datetime));
+  const list = [...state.transactions].filter(t => (historyPeriod === 'all' || monthKey(t.datetime) === historyPeriod) && (type === 'all' || t.type === type) && (owner === 'all' || (owner === 'PaoShare' ? expenseShare(t) > 0 : t.owner === owner)) && (project === 'all' || (project === 'none' ? !t.projectId : t.projectId === project)) && (!query || `${t.note || ''} ${t.category || ''} ${t.payment || ''} ${projectById(t.projectId)?.name || ''} ${pocketById(t.pocketId)?.name || ''}`.toLowerCase().includes(query))).sort((a,b) => new Date(b.datetime) - new Date(a.datetime));
   let day = '';
   $('historyList').innerHTML = list.map(t => {
     const date = new Date(t.datetime).toLocaleDateString('th-TH', {day:'numeric',month:'long',year:'numeric'});
     const heading = date !== day ? `<h2 class="date-heading">${date}</h2>` : '';
     day = date;
-    return heading + txrow(t);
+    return heading + txrow(t,owner === 'PaoShare' ? 'Pao' : null);
   }).join('') || '<div class="empty">ไม่พบรายการตามเงื่อนไขนี้<button class="btn" onclick="clearHistoryFilters()">ล้างตัวกรอง</button></div>';
-  $('historyCount').textContent = `${list.length} รายการ · ${historyPeriod === 'all' ? 'ทุกช่วงเวลา' : formatMonth(historyPeriod)}`;
+  $('historyCount').textContent = `${list.length} รายการ · ${historyPeriod === 'all' ? 'ทุกช่วงเวลา' : formatMonth(historyPeriod)}${owner === 'PaoShare' ? ' · ส่วนของเปา ' + money(paoExpenseTotal(list)) : ''}`;
 }
 function renderSummary(){const t=totals();$('sInc').textContent=money(t.income);$('sExp').textContent=money(t.expense);$('sSav').textContent=money(t.saving);$('sAvail').textContent=money(t.available);$('sRate').textContent=`อัตราเงินเก็บ ${t.rate.toFixed(1)}%`;const ex=currentMonthTx().filter(x=>x.type==='expense'),cats={};ex.forEach(x=>cats[x.category]=(cats[x.category]||0)+x.amount);let mx=Math.max(1,...Object.values(cats));$('catChart').innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="chartrow"><span>${esc(k)}</span><div class="bar"><div style="width:${v/mx*100}%"></div></div><b>${money(v)}</b></div>`).join('')||'<div class="empty">ยังไม่มีรายจ่ายเดือนนี้</div>';const projs=state.projects.map(p=>[p.name,projectSpend(p.id,true)]).filter(x=>x[1]>0),pmx=Math.max(1,...projs.map(x=>x[1]));$('projectChart').innerHTML=projs.map(([k,v])=>`<div class="chartrow"><span>${esc(k)}</span><div class="bar"><div style="width:${v/pmx*100}%"></div></div><b>${money(v)}</b></div>`).join('')||'<div class="empty">เดือนนี้ยังไม่มีการใช้จ่ายโปรเจกต์</div>';const owners={Pao:0,Tim:0,Both:0};ex.forEach(x=>owners[x.owner]=(owners[x.owner]||0)+x.amount);mx=Math.max(1,...Object.values(owners));$('ownerChart').innerHTML=Object.entries(owners).map(([k,v])=>`<div class="chartrow"><span>${who(k)}</span><div class="bar"><div style="width:${v/mx*100}%"></div></div><b>${money(v)}</b></div>`).join('');const d=debtFor();$('sumDebt').innerHTML=d===0?'ไม่มีใครค้างใคร':`${d>0?'ติมค้างเปา':'เปาค้างติม'} <b>${money(Math.abs(d))}</b>`;$('pocketSummary').innerHTML=state.pockets.map(p=>{const b=pocketBalance(p.id),pct=p.goal?Math.min(100,b/p.goal*100):0;return `<div class="detail-row"><div class="detail-head"><div><b>${esc(p.icon||'💰')} ${esc(p.name)}</b><br><small class="muted">เป้าหมาย ${money(p.goal)}</small></div><b>${money(b)}</b></div><div class="progress saving" style="margin-top:7px"><div style="width:${pct}%"></div></div></div>`}).join('')||'<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>'}
 function projectCategoryBreakdown(pid){const xs=state.transactions.filter(t=>t.type==='expense'&&t.projectId===pid),c={};xs.forEach(x=>c[x.category]=(c[x.category]||0)+x.amount);return c}
@@ -571,7 +657,7 @@ function renderProjects() {
     return `<article class="card project-card ${expanded.has(cardId) ? 'expanded' : ''}" id="${esc(cardId)}"><div class="project-title"><h2>${esc(project.icon || '▣')} ${esc(project.name)}</h2><span class="status">${esc(statusLabel(project.status))}</span></div><div class="project-stat"><div><small>งบทั้งหมด</small><b>${money(budget)}</b></div><div><small>ใช้จริงทั้งหมด</small><b>${money(spent)}</b></div><div><small>เงินเก็บที่เชื่อมไว้</small><b class="saving">${money(saved)}</b></div></div><div class="progress ${budget && spent > budget ? 'over' : ''}"><div style="width:${Math.min(100,percent)}%"></div></div><p class="${budget && spent > budget ? 'expense' : 'muted'}">${budget ? (spent > budget ? 'เกินงบ ' + money(spent-budget) : 'เหลือ ' + money(budget-spent)) + ' · ใช้ไป ' + percent.toFixed(0) + '%' : 'ยังไม่ตั้งงบ'}</p><button class="disclosure" data-disclosure="${esc(cardId)}" onclick="toggleProject(${jsArg(project.id)})" aria-expanded="${expanded.has(cardId)}" aria-controls="${esc(panelId)}">ดูหมวดและรายการ <span aria-hidden="true">⌄</span></button><div class="project-detail" id="${esc(panelId)}"><h3>แยกตามหมวด</h3>${Object.entries(categories).sort((a,b) => b[1]-a[1]).map(([category,value]) => `<div class="chartrow"><span>${esc(category)}</span><div class="bar"><div style="width:${value/max*100}%"></div></div><b>${money(value)}</b></div>`).join('') || '<p class="empty">ยังไม่มีรายจ่าย</p>'}<h3>รายการทั้งหมด</h3>${transactions.map(tx => txrow(tx)).join('') || '<p class="empty">ยังไม่มีรายการ</p>'}<div class="actions"><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้ไขโปรเจกต์</button>${project.status !== 'Archived' ? `<button class="btn" onclick="archiveProject(${jsArg(project.id)})">เก็บเข้าคลัง</button>` : ''}</div></div></article>`;
   }).join('') || '<div class="empty">ยังไม่มีโปรเจกต์<button class="soft" onclick="addProject()">＋ เพิ่มโปรเจกต์แรก</button></div>';
 }
-function renderSettings(){$('payments').innerHTML=state.payments.map((p,i)=>`<div class="setrow"><div><b>${esc(p)}</b><small class="muted" style="display:block">${p===state.settings.defaultPayment?'ค่าเริ่มต้น':''}</small></div><div>${p!==state.settings.defaultPayment?`<button class="soft" onclick="setDefaultByIndex(${i})">ตั้งเป็นค่าเริ่มต้น</button>`:''} ${state.payments.length>1&&p!==state.settings.defaultPayment?`<button class="danger" onclick="removePayByIndex(${i})">ลบ</button>`:''}</div></div>`).join('');$('pocketSettings').innerHTML=state.pockets.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'💰')} ${esc(p.name)}</b><small class="muted" style="display:block">${money(pocketBalance(p.id))} / ${money(p.goal)}${p.projectId&&projectById(p.projectId)?` • ${esc(projectById(p.projectId).name)}`:''}</small></div><button class="soft" onclick="editPocket('${p.id}')">แก้</button></div>`).join('')||'<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>';$('recList').innerHTML=state.recurring.map(r=>`<div class="setrow"><div><b>↻ ${r.template.type==='saving'?'💰 ':''}${esc(r.template.note||r.template.category||'เงินเก็บ')} • ${money(r.template.amount)}</b><small class="muted" style="display:block">${r.frequency==='daily'?'ทุกวัน':r.frequency==='weekly'?'ทุกสัปดาห์':'ทุกเดือน'} • ${new Date(r.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${r.enabled?'on':''}" onclick="toggleRec('${r.id}')" type="button" aria-label="เปิดหรือปิดรายการประจำนี้" aria-pressed="${r.enabled?'true':'false'}"></button> <button class="danger" onclick="delRec('${r.id}')">ลบ</button></div></div>`).join('')||'<div class="empty">ยังไม่มีรายการประจำ</div>';$('budSettings').innerHTML=`<div class="setrow"><div><b>งบรวม</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(state.settings.overallBudget)}</b></div>`+Object.entries(state.budgets).map(([k,v])=>{const used=currentMonthTx().filter(x=>x.type==='expense'&&x.category===k).reduce((s,x)=>s+x.amount,0);return `<div class="setrow"><div>${esc(k)}<small class="muted" style="display:block">ใช้ ${money(used)}</small></div><b>${money(v)}</b></div>`}).join('');$('projectSettings').innerHTML=state.projects.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'▣')} ${esc(p.name)}</b><small class="muted" style="display:block">${esc(statusLabel(p.status))} • งบ ${money(p.budget)}</small></div><button class="soft" onclick="editProject('${p.id}')">แก้</button></div>`).join('')||'<div class="empty">ยังไม่มีโปรเจกต์</div>';$('themeSwitch').classList.toggle('on',state.settings.theme==='dark');$('homeIncomeSwitch')?.classList.toggle('on',state.settings.hideIncomeHome!==false)}
+function renderSettings(){$('payments').innerHTML=state.payments.map((p,i)=>`<div class="setrow"><div><b>${esc(p)}</b><small class="muted" style="display:block">${p===state.settings.defaultPayment?'ค่าเริ่มต้น':''}</small></div><div>${p!==state.settings.defaultPayment?`<button class="soft" onclick="setDefaultByIndex(${i})">ตั้งเป็นค่าเริ่มต้น</button>`:''} ${state.payments.length>1&&p!==state.settings.defaultPayment?`<button class="danger" onclick="removePayByIndex(${i})">ลบ</button>`:''}</div></div>`).join('');$('pocketSettings').innerHTML=state.pockets.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'💰')} ${esc(p.name)}</b><small class="muted" style="display:block">${money(pocketBalance(p.id))} / ${money(p.goal)}${p.projectId&&projectById(p.projectId)?` • ${esc(projectById(p.projectId).name)}`:''}</small></div><button class="soft" onclick="editPocket('${p.id}')">แก้</button></div>`).join('')||'<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>';$('recList').innerHTML=state.recurring.filter(r=>r.kind!=='installment').map(r=>`<div class="setrow"><div><b>↻ ${r.template.type==='saving'?'💰 ':''}${esc(r.template.note||r.template.category||'เงินเก็บ')} • ${money(r.template.amount)}</b><small class="muted" style="display:block">${r.frequency==='daily'?'ทุกวัน':r.frequency==='weekly'?'ทุกสัปดาห์':'ทุกเดือน'} • ${new Date(r.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${r.enabled?'on':''}" onclick="toggleRec('${r.id}')" type="button" aria-label="เปิดหรือปิดรายการประจำนี้" aria-pressed="${r.enabled?'true':'false'}"></button> <button class="danger" onclick="delRec('${r.id}')">ลบ</button></div></div>`).join('')||'<div class="empty">ยังไม่มีรายการประจำ</div>';$('budSettings').innerHTML=`<div class="setrow"><div><b>งบรวม</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(state.settings.overallBudget)}</b></div>`+Object.entries(state.budgets).map(([k,v])=>{const used=currentMonthTx().filter(x=>x.type==='expense'&&x.category===k).reduce((s,x)=>s+x.amount,0);return `<div class="setrow"><div>${esc(k)}<small class="muted" style="display:block">ใช้ ${money(used)}</small></div><b>${money(v)}</b></div>`}).join('');$('projectSettings').innerHTML=state.projects.map(p=>`<div class="setrow"><div><b>${esc(p.icon||'▣')} ${esc(p.name)}</b><small class="muted" style="display:block">${esc(statusLabel(p.status))} • งบ ${money(p.budget)}</small></div><button class="soft" onclick="editProject('${p.id}')">แก้</button></div>`).join('')||'<div class="empty">ยังไม่มีโปรเจกต์</div>';$('themeSwitch').classList.toggle('on',state.settings.theme==='dark');$('homeIncomeSwitch')?.classList.toggle('on',state.settings.hideIncomeHome!==false)}
 function addPayment(){const x=prompt('ชื่อช่องทางชำระเงิน เช่น บัตรเครดิต')?.trim();if(!x)return;if(state.payments.includes(x))return toastMsg('มีรายการนี้แล้ว');state.payments.push(x);save();renderAll()}
 function setDefault(p){state.settings.defaultPayment=p;save();renderAll()}
 function setDefaultByIndex(i){const p=state.payments[i];if(p)setDefault(p)}
@@ -654,8 +740,22 @@ function saveProjectModal() {
   catch (error) { fieldError('projectNameInput',error.message); }
 }
 function archiveProject(pid){const p=projectById(pid);if(p){p.status='Archived';save();renderAll()}}
-function toggleRec(rid){const r=state.recurring.find(x=>x.id===rid);if(r){r.enabled=!r.enabled;save();renderAll()}}
-function delRec(rid){if(!confirm('ลบรายการประจำนี้?'))return;state.recurring=state.recurring.filter(x=>x.id!==rid);save();renderAll()}
+function renderInstallments() {
+  const plans = state.recurring.filter(rec => rec.kind === 'installment');
+  const row = (rec, manage) => {
+    const remaining = rec.totalInstallments - rec.completedInstallments;
+    const balance = Math.round(rec.template.amount * 100) * remaining / 100;
+    const status = remaining === 0 ? 'ครบทุกงวดแล้ว' : rec.enabled ? `งวดถัดไป ${new Date(rec.nextRun).toLocaleDateString('th-TH')}` : 'พักการบันทึกอัตโนมัติ';
+    const controls = manage ? `<div class="installment-actions">${remaining ? `<button class="soft" onclick="toggleRec(${jsArg(rec.id)})">${rec.enabled ? 'พัก' : 'ทำต่อ'}</button>` : ''}<button class="danger" onclick="delRec(${jsArg(rec.id)})">${remaining ? 'ยกเลิกแผน' : 'ลบแผน'}</button></div>` : '';
+    return `<div class="installment-row"><div class="detail-head"><b>${esc(rec.template.note || rec.template.category || 'รายการผ่อน')}</b><b class="expense">${money(balance)}</b></div><small class="muted">${money(rec.template.amount)} / เดือน · ${who(rec.template.owner)}${rec.template.owner === 'Both' ? ' · เปา ' + money(expenseShare(rec.template)) + ' / งวด' : ''}</small><div class="progress" role="progressbar" aria-label="งวดที่บันทึกแล้ว" aria-valuemin="0" aria-valuemax="${rec.totalInstallments}" aria-valuenow="${rec.completedInstallments}"><div style="width:${rec.completedInstallments / rec.totalInstallments * 100}%"></div></div><div class="detail-head"><span>เหลือ ${remaining} / ${rec.totalInstallments} งวด</span><span class="muted">บันทึกแล้ว ${rec.completedInstallments} งวด</span></div><small class="muted">${status}</small>${controls}</div>`;
+  };
+  const active = plans.filter(rec => rec.completedInstallments < rec.totalInstallments);
+  $('homeInstallments').innerHTML = active.map(rec => row(rec,false)).join('') || `<p class="empty">${plans.length ? 'บันทึกครบทุกงวดแล้ว' : 'เพิ่มยอดผ่อน แล้วดูยอดคงเหลือที่ลดลงทุกเดือน'}</p>`;
+  if (plans.length) $('homeInstallments').innerHTML += '<button class="btn" onclick="openSettingsSection(\'installmentList\')">จัดการรายการผ่อน</button>';
+  $('installmentList').innerHTML = plans.map(rec => row(rec,true)).join('') || '<p class="empty">ยังไม่มีรายการผ่อน</p>';
+}
+function toggleRec(rid){const r=state.recurring.find(x=>x.id===rid);if(r){if(r.kind==='installment'&&r.completedInstallments>=r.totalInstallments)return;r.enabled=!r.enabled;save();checkRecurring();renderAll()}}
+function delRec(rid){const rec=state.recurring.find(x=>x.id===rid);if(!rec)return;if(!confirm(rec.kind==='installment'?'ยกเลิกแผนผ่อนนี้? รายจ่ายที่บันทึกไปแล้วยังคงอยู่ และจะไม่เพิ่มงวดใหม่':'ลบรายการประจำนี้?'))return;state.recurring=state.recurring.filter(x=>x.id!==rid);save();renderAll()}
 function openBudget(){
  $('overallBudget').value=state.settings.overallBudget||0;
  $('catBudFields').innerHTML=state.categories.expense.map((c,i)=>`<div class="field" style="margin-bottom:8px"><label for="catBudget_${i}">${esc(c)}</label><input id="catBudget_${i}" class="input catb" data-cat="${esc(c)}" value="${state.budgets[c]||''}" placeholder="ไม่ตั้งงบ" inputmode="decimal"></div>`).join('');
@@ -705,10 +805,11 @@ async function restore(event) {
 }
 function renderAll() {
   renderPays(); renderSelects(); renderCats(); renderPeriodOptions(); renderHome(); renderHistory(); renderSummary(); renderProjects(); renderSettings();
+  renderInstallments();
   updateSplit(); updateFormSummary(); syncA11yState(); syncAddControls(); syncBackButton(); renderBackupStatus(); renderDraftNotice();
   $('localNotice').hidden = !!state.settings.localNoticeDismissed;
   $('homePocketsCard').hidden = !state.pockets.length;
-  $('homeRecurringCard').hidden = !state.recurring.some(r => r.enabled && (state.settings.hideIncomeHome === false || r.template.type !== 'income'));
+  $('homeRecurringCard').hidden = !state.recurring.some(r => r.kind !== 'installment' && r.enabled && (state.settings.hideIncomeHome === false || r.template.type !== 'income'));
   $('homeProjectsCard').hidden = !state.projects.some(p => p.status === 'Active');
   $('setupCard').hidden = state.pockets.length > 0 && state.recurring.length > 0 && state.projects.length > 0;
   $('quickCard').hidden = !$('quick').querySelector('.quick');
@@ -726,7 +827,7 @@ let pendingRestore = null, restoringRoute = false;
 let selectedMonth = monthKey(new Date()), historyPeriod = 'all';
 let route = {app:'pt-money',view:'home',detail:null,from:null,scroll:0};
 const viewScroll = {}, quickGuard = new Map();
-const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','note','freq','nextRun'];
+const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','note','freq','nextRun','installmentCount'];
 let draftCache = readDrafts();
 
 function typeLabel(type) { return ({expense:'รายจ่าย',income:'รายรับ',saving:'เงินเก็บ',settlement:'คืนเงิน'})[type] || 'รายการ'; }
@@ -831,7 +932,7 @@ function restoreDraft(key) {
   setType(form.type); renderPays(); renderSelects();
   for (const field of draftFields) if (typeof draft.values[field] === 'string') $(field).value = draft.values[field];
   $('optionalDetails').open = !!draft.optional;
-  toggleRecurring(!!form.recurring); syncChoices(); renderCats(); updateSplit(); updateFormSummary();
+  toggleRecurring(!!form.recurring); syncInstallmentForm(); syncChoices(); renderCats(); updateSplit(); updateFormSummary();
   formBaseline = draft.baseline || '';
   $('draftStatus').textContent = 'กลับมาทำแบบร่างต่อ';
   restoringDraft = false;
@@ -895,6 +996,7 @@ function openTx(txid) {
     fields.push(['ช่องทาง',tx.payment || 'ไม่ระบุ'],['เจ้าของรายการ',who(tx.owner)]);
     if (tx.payer) fields.push(['ผู้จ่ายเงินจริง',who(tx.payer)]);
     if (tx.split) fields.push(['ส่วนของเปา',money(tx.split.Pao)],['ส่วนของติม',money(tx.split.Tim)]);
+    if (tx.installmentNumber) fields.push(['งวดผ่อน',`${tx.installmentNumber} / ${tx.installmentTotal}`]);
     if (tx.projectId) fields.push(['โปรเจกต์',projectById(tx.projectId)?.name || 'โปรเจกต์เดิม']);
     if (tx.pocketId) fields.push(['กระเป๋า',pocketById(tx.pocketId)?.name || 'กระเป๋าเดิม']);
   }
@@ -928,7 +1030,11 @@ function validateBackup(input) {
     for (const field of ['projectId','pocketId','recurringId']) if (tx[field] && !validId(tx[field])) invalid();
   }
   input.transactions.forEach(tx => validateTx(tx));
-  input.recurring.forEach(rec => { if (!['daily','weekly','monthly'].includes(rec.frequency) || !Number.isFinite(new Date(rec.nextRun).getTime()) || !rec.template) invalid(); validateTx(rec.template,true); });
+  input.recurring.forEach(rec => {
+    if (!['daily','weekly','monthly'].includes(rec.frequency) || !Number.isFinite(new Date(rec.nextRun).getTime()) || !rec.template) invalid();
+    validateTx(rec.template,true);
+    if (rec.kind === 'installment' && (rec.frequency !== 'monthly' || rec.template.type !== 'expense' || !Number.isInteger(rec.totalInstallments) || rec.totalInstallments < 1 || rec.totalInstallments > 600 || !Number.isInteger(rec.completedInstallments) || rec.completedInstallments < 0 || rec.completedInstallments > rec.totalInstallments || !Number.isInteger(rec.dayOfMonth) || rec.dayOfMonth < 1 || rec.dayOfMonth > 31)) invalid();
+  });
   input.pockets.forEach(p => { if (typeof p.name !== 'string' || !validNumber(p.goal ?? 0) || !validNumber(p.openingBalance ?? 0) || Number(p.goal) < 0 || Number(p.openingBalance) < 0) invalid(); });
   input.projects.forEach(p => { if (typeof p.name !== 'string' || !validNumber(p.budget ?? 0) || Number(p.budget) < 0 || !['Planning','Active','Completed','Archived'].includes(p.status)) invalid(); });
   if (!validNumber(input.settings.overallBudget ?? 0) || Number(input.settings.overallBudget) < 0 || Object.values(input.budgets).some(n => !validNumber(n) || Number(n) < 0)) invalid();
@@ -938,7 +1044,7 @@ function presentRestore(candidate, filename, createdAt, rollback) {
   pendingRestore = {candidate,rollback};
   $('restoreTitle').textContent = rollback ? 'ย้อนกลับไปก่อนกู้คืน' : 'ตรวจสอบก่อนกู้คืน';
   $('restoreFileName').textContent = filename + (createdAt && Number.isFinite(new Date(createdAt).getTime()) ? ' · ' + new Date(createdAt).toLocaleString('th-TH') : ' · ไฟล์นี้ไม่ระบุเวลาสำรอง');
-  const summary = (label,value) => `<div><b>${label}</b><p>${value.transactions.length} รายการ</p><small>${value.pockets.length} กระเป๋า · ${value.projects.length} โปรเจกต์</small><small>${value.recurring.length} รายการประจำ</small></div>`;
+  const summary = (label,value) => `<div><b>${label}</b><p>${value.transactions.length} รายการ</p><small>${value.pockets.length} กระเป๋า · ${value.projects.length} โปรเจกต์</small><small>${value.recurring.filter(rec=>rec.kind!=='installment').length} รายการประจำ · ${value.recurring.filter(rec=>rec.kind==='installment').length} แผนผ่อน</small></div>`;
   $('restoreComparison').innerHTML = `<div class="restore-comparison">${summary('ข้อมูลปัจจุบัน',state)}${summary('ข้อมูลที่จะใช้',candidate)}</div>`;
   $('confirmRestoreButton').textContent = rollback ? 'ย้อนกลับไปข้อมูลนี้' : 'แทนที่ด้วยข้อมูลนี้';
   $('restoreError').hidden = true;
@@ -1001,7 +1107,7 @@ document.addEventListener('change',event => {
   if ($('transactionForm').contains(event.target)) { clearFieldError(event.target.id); updateFormSummary(); stashDraft(); }
 });
 document.addEventListener('click',event => {
-  if (event.target.closest('[data-payer],[data-owner],[data-incowner],[data-savowner],[data-split],#recSwitch,#expTab,#incTab,#savTab')) stashDraft();
+  if (event.target.closest('[data-payer],[data-owner],[data-incowner],[data-savowner],[data-split],#recSwitch,#installmentSwitch,#expTab,#incTab,#savTab')) stashDraft();
 });
 window.addEventListener('error',event => { if (event.error?.name === 'LocalSaveError') { event.preventDefault(); toastMsg(event.error.message); } });
 window.addEventListener('pagehide',stashDraft);

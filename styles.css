@@ -81,3 +81,13 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
 @media(max-width:600px){.entry-defaults,#recBox>.compact-row{grid-template-columns:minmax(0,1fr);gap:16px}.form .input{font-size:16px}.core-fields,.optional-details>.formgrid{grid-template-columns:minmax(0,1fr)}.core-fields>.full{grid-column:auto}.form-heading #draftStatus{font-size:12px;max-width:95px;flex-shrink:0}.project-stat{grid-template-columns:repeat(2,minmax(0,1fr))}.project-modal-grid{grid-template-columns:minmax(0,1fr)}.setrow>div:last-child{max-width:58%}}
 @media(max-width:360px){.main{padding-inline:12px}.card{padding:14px}.value{font-size:22px}.head{gap:8px}.head h1{font-size:23px}.head>button{padding-inline:10px;font-size:14px}.tx{grid-template-columns:28px minmax(0,1fr) auto;gap:7px}.tx .ico{width:28px;height:28px}.tx .amt{font-size:14px;max-width:112px}.tx-meta{font-size:13px}.mini3{gap:5px}.mini3>div{padding:7px}.mini3 small{font-size:12px}.debt-main{gap:8px}.debt-actions button{padding-inline:8px;font-size:14px}.chartrow{grid-template-columns:minmax(65px,1fr) minmax(16px,.6fr) auto;gap:6px}.chartrow>b{font-size:13px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.installment-row{padding:14px 0;border-bottom:1px solid var(--line)}
+.installment-row:first-child{padding-top:0}
+.installment-row:last-child{border-bottom:0}
+.installment-row small{display:block;margin-top:6px}
+.installment-row .detail-head{font-size:14px;grid-template-columns:minmax(0,1fr) minmax(0,auto);overflow-wrap:anywhere}
+.installment-row .detail-head>:last-child{text-align:right}
+.installment-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+#installmentBox p{margin:4px 0}
+#customSplitHelp{display:block;margin-top:10px}
+#homeInstallments>.btn{margin-top:12px}
