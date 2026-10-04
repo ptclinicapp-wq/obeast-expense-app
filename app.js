@@ -44,6 +44,10 @@ function cleanRecurring(r={}){
    rec.frequency='monthly';
    rec.totalInstallments=Math.min(600,Math.max(1,Math.round(num(rec.totalInstallments,1))));
    rec.completedInstallments=Math.min(rec.totalInstallments,Math.max(0,Math.round(num(rec.completedInstallments))));
+   if (rec.installmentTotalAmount != null && rec.installmentTotalSplit) {
+     rec.installmentTotalAmount = num(rec.installmentTotalAmount);
+     rec.installmentTotalSplit = {Pao:num(rec.installmentTotalSplit.Pao),Tim:num(rec.installmentTotalSplit.Tim)};
+   }
    if(rec.completedInstallments===rec.totalInstallments)rec.enabled=false;
  }
  return rec
@@ -182,7 +186,7 @@ function syncAddControls(view = currentView()) {
   document.body.dataset.view = view;
   document.querySelectorAll('button[data-view="add"]').forEach(b => { b.hidden = view === 'add'; b.textContent = '＋ เพิ่มรายการ'; });
 }
-function handleAddControl() { openAdd(); }
+function handleAddControl() { openAddSheet(); }
 function show(view, options = {}) {
   if (!['home','history','summary','projects','settings','add'].includes(view)) return;
   if (visibleModal()) closeTopModal();
@@ -191,7 +195,7 @@ function show(view, options = {}) {
   if (previous === 'add' && !options.saved) stashDraft();
   if (!options.fromPop && !restoringRoute) {
     history.replaceState({...route, scroll:window.scrollY, app:'pt-money'}, '', location.href);
-    route = {app:'pt-money', view, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
+    route = {app:'pt-money', view, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, entryKind:view === 'add' ? entryKindFor() : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
     const url = '#' + view;
     if (options.replace || previous === 'add') history.replaceState(route, '', url);
     else if (previous !== view || options.detail) history.pushState(route, '', url);
@@ -222,26 +226,39 @@ function openHistory(type = 'all', owner = 'all') {
 }
 function openAddSheet(){openModal('addSheet','.sheet-option')}
 function closeAddSheet(){closeModal('addSheet')}
-function startAdd(type='expense'){closeAddSheet();openAdd(type)}
+function startAdd(type='expense'){closeAddSheet();openEntry(type)}
 function openAdd(typeOrRecurring = 'expense', withRecurring = false) {
   const type = typeof typeOrRecurring === 'boolean' ? 'expense' : typeOrRecurring || 'expense';
   const recurring = typeof typeOrRecurring === 'boolean' ? typeOrRecurring : withRecurring;
+  openEntry(recurring && type === 'expense' ? 'monthly' : type);
+  if (recurring && type !== 'expense') { toggleRecurring(true); $('optionalDetails').open = true; }
+}
+function entryKindFor(value = form) { return value.type === 'expense' ? value.installment ? 'installment' : value.monthly || value.recurring ? 'monthly' : 'expense' : value.type; }
+function entryLabel(kind) { return ({expense:'รายจ่ายทั่วไป',installment:'รายจ่ายผ่อน',monthly:'รายจ่ายประจำเดือน',income:'รายรับ',saving:'เงินเก็บ'})[kind] || 'รายการ'; }
+function currentDraftKey() { return form.editId || 'new_' + entryKindFor(); }
+function openEntry(kind = 'expense', options = {}) {
+  if (!['expense','installment','monthly','income','saving'].includes(kind)) kind = 'expense';
   const previous = currentView() === 'add' ? route.from || 'home' : currentView();
+  if (!options.fresh) stashDraft();
   resetForm();
-  if (!restoreDraft('new')) {
-    setType(type);
-    if (recurring) { toggleRecurring(true); $('optionalDetails').open = true; }
+  const draftKey = 'new_' + kind;
+  if (draftCache.new && entryKindFor(draftCache.new.form) === kind && !draftCache[draftKey]) { draftCache[draftKey] = draftCache.new; delete draftCache.new; }
+  if (options.fresh || !restoreDraft(draftKey)) {
+    form.monthly = kind === 'monthly';
+    form.installment = kind === 'installment';
+    setType(['installment','monthly'].includes(kind) ? 'expense' : kind);
+    syncInstallmentForm(); updateFormSummary();
     formBaseline = draftSignature();
   }
   show('add', {from:previous});
   if (!form.editId && !$('amount').value) $('amount').focus({preventScroll:true});
 }
-function openInstallment() {
-  openAdd('expense');
-  setType('expense');
-  toggleInstallment(true);
-  $('amount').focus({preventScroll:true});
-  stashDraft();
+function openInstallment() { openEntry('installment'); }
+function changeEntryKind(kind) {
+  if (form.editId) { setType(kind); return; }
+  // The select changes before the old draft is captured; keep its original kind.
+  $('entryKind').value = entryKindFor();
+  openEntry(kind);
 }
 document.querySelectorAll('button[data-view]').forEach(b=>b.addEventListener('click',()=>b.dataset.view==='add'?handleAddControl():show(b.dataset.view)));
 document.addEventListener('click',e=>{const cat=e.target.closest?.('[data-cat-choice]');if(cat){setCategory(cat.dataset.catChoice);return}if(e.target.closest?.('[data-cat-toggle]'))toggleCats()});
@@ -326,7 +343,7 @@ function setType(type) {
   if (!['expense','income','saving'].includes(type)) return;
   const changed = form.type !== type;
   form.type = type;
-  if (type !== 'expense') form.installment = false;
+  if (type !== 'expense') { form.installment = false; form.monthly = false; }
   if (changed) { form.catExpanded = false; $('cat').value = ''; $('categorySearch').value = ''; }
   for (const [id, value] of [['expTab','expense'],['incTab','income'],['savTab','saving']]) $(id).classList.toggle('active', value === type);
   document.querySelectorAll('.expOnly,.incOnly,.savingOnly,.nonSaving').forEach(el => {
@@ -356,23 +373,67 @@ function syncCustomSplit(source) {
 }
 function syncInstallmentForm() {
   const active = form.type === 'expense' && form.installment && !form.editId;
-  $('installmentField').hidden = form.type !== 'expense' || !!form.editId;
+  const monthly = form.type === 'expense' && form.monthly && !form.editId;
+  const scheduled = active || monthly;
+  $('entryKind').value = entryKindFor();
+  for (const option of $('entryKind').options) option.hidden = !!form.editId && ['monthly','installment'].includes(option.value);
+  $('installmentField').hidden = !active;
+  $('planNameField').hidden = !scheduled;
+  $('installmentBasisField').hidden = !active;
+  $('monthlyBox').hidden = !monthly;
+  $('monthlyBox').classList.toggle('show',monthly);
+  $('scheduleHelp').hidden = !scheduled;
+  $('transactionDateField').hidden = scheduled;
   $('installmentSwitch').classList.toggle('on',active);
   $('installmentSwitch').setAttribute('aria-pressed',String(active));
   $('installmentBox').classList.toggle('show',active);
   $('installmentBox').setAttribute('aria-hidden',String(!active));
-  $('amountLabel').textContent = active ? 'ยอดผ่อนต่องวด (บาท)' : 'จำนวนเงิน (บาท)';
+  $('amountLabel').textContent = active ? $('installmentBasis').value === 'total' ? 'ยอดรวมที่ต้องผ่อน (บาท)' : 'ยอดผ่อนต่อเดือน (บาท)' : monthly ? 'จ่ายเดือนละ (บาท)' : 'จำนวนเงิน (บาท)';
   $('dateLabel').textContent = active ? 'วันและเวลางวดแรก' : 'วันที่และเวลา';
   if (form.type === 'expense' && !form.editId) {
-    $('formTitle').textContent = active ? 'เพิ่มรายการผ่อน' : 'เพิ่มรายจ่าย';
-    $('formSubtitle').textContent = active ? 'ระบุยอดต่องวด จำนวนงวด และวันเริ่มผ่อน' : 'ระบุยอดและคนที่แบ่งค่าใช้จ่าย';
+    $('formTitle').textContent = active ? 'เพิ่มรายจ่ายผ่อน' : monthly ? 'เพิ่มรายจ่ายประจำเดือน' : 'เพิ่มรายจ่ายทั่วไป';
+    $('formSubtitle').textContent = active ? 'เลือกเดือนเริ่ม แล้วให้แอปแบ่งยอดให้' : monthly ? 'ตั้งครั้งเดียว บันทึกให้อัตโนมัติทุกเดือน' : 'ระบุยอดและคนที่แบ่งค่าใช้จ่าย';
   }
-  $('recurringField').hidden = active || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
+  $('recurringField').hidden = form.type === 'expense' || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
+  $('recBox').classList.toggle('show',form.recurring && !scheduled);
+  const shareLabel = active && $('installmentBasis').value === 'total' ? ' (ยอดรวม)' : scheduled ? ' (ต่อเดือน)' : '';
+  document.querySelector('label[for="ps"]').textContent = 'ส่วนของเปา' + shareLabel;
+  document.querySelector('label[for="ts"]').textContent = 'ส่วนของติม' + shareLabel;
 }
 function toggleInstallment(force) {
   form.installment = form.type === 'expense' && !form.editId && (typeof force === 'boolean' ? force : !form.installment);
-  if (form.installment) toggleRecurring(false);
+  if (form.installment) { form.monthly = false; toggleRecurring(false); }
   syncInstallmentForm(); updateFormSummary();
+}
+function scheduleDate(prefix) {
+  const month = $(prefix + 'Start').value, day = Number($(prefix + 'Day').value);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !Number.isInteger(day) || day < 1 || day > 31) return null;
+  const [year,monthNumber] = month.split('-').map(Number);
+  if (year < 1900 || year > 9998) return null;
+  return new Date(year,monthNumber - 1,Math.min(day,new Date(year,monthNumber,0).getDate()),0,0);
+}
+function installmentQuote() {
+  const amount = parseMoney($('amount').value), count = Number($('installmentCount').value);
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(count) || count < 1 || count > 600) return null;
+  const totalCents = Math.round(amount * 100) * ($('installmentBasis').value === 'monthly' ? count : 1);
+  if (!Number.isSafeInteger(totalCents) || totalCents < count) return null;
+  const regularCents = Math.floor(totalCents / count);
+  return {count,amount:regularCents / 100,finalAmount:(totalCents - regularCents * (count - 1)) / 100,total:totalCents / 100};
+}
+function installmentPayment(rec, number) {
+  if (!Number.isFinite(rec.installmentTotalAmount)) return {amount:rec.template.amount,split:clone(rec.template.split)};
+  const total = Math.round(rec.installmentTotalAmount * 100), regular = Math.floor(total / rec.totalInstallments);
+  const before = regular * (number - 1), after = number === rec.totalInstallments ? total : regular * number;
+  const paoTotal = Math.round(rec.installmentTotalSplit.Pao * 100);
+  const cumulativeShare = cents => Number((BigInt(cents) * BigInt(paoTotal) + BigInt(total) / 2n) / BigInt(total));
+  const pao = cumulativeShare(after) - cumulativeShare(before);
+  return {amount:(after - before) / 100,split:{Pao:pao / 100,Tim:(after - before - pao) / 100}};
+}
+function installmentRemaining(rec) {
+  if (!Number.isFinite(rec.installmentTotalAmount)) return Math.round(rec.template.amount * 100) * (rec.totalInstallments - rec.completedInstallments) / 100;
+  if (rec.completedInstallments >= rec.totalInstallments) return 0;
+  const total = Math.round(rec.installmentTotalAmount * 100);
+  return (total - Math.floor(total / rec.totalInstallments) * rec.completedInstallments) / 100;
 }
 function updateFormSummary() {
   const amount = parseMoney($('amount').value) || 0;
@@ -393,11 +454,22 @@ function updateFormSummary() {
   $('saveHint').textContent = hint;
   $('saveTxButton').textContent = `${form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
   if (form.installment && !form.editId) {
-    const count = Number($('installmentCount').value);
-    const valid = Number.isInteger(count) && count > 0 && count <= 600;
-    $('installmentPreview').textContent = valid && amount > 0 ? `${money(amount)} × ${count} งวด · ยอดรวม ${money(Math.round(amount * 100) * count / 100)}` : 'ใส่ยอดต่องวดและจำนวนงวดเพื่อดูยอดรวม';
-    $('saveTxButton').textContent = 'บันทึกแผนผ่อน' + (valid ? ` ${count} งวด` : '');
-    $('saveHint').textContent = `ผ่อนรายเดือน ${money(amount)} / งวด`;
+    const quote = installmentQuote(), start = scheduleDate('installment');
+    let preview = 'ใส่ยอดเงินและจำนวนเดือนเพื่อดูยอดผ่อน';
+    if (quote) {
+      preview = `เดือนละ ${money(quote.amount)} · ${quote.count} เดือน · รวม ${money(quote.total)}`;
+      if (quote.finalAmount !== quote.amount) preview += ` · เดือนสุดท้าย ${money(quote.finalAmount)}`;
+      if (start) { const end = new Date(start.getFullYear(),start.getMonth()+quote.count-1,1); preview += ` · ${formatMonth(monthKey(start))} – ${formatMonth(monthKey(end))}`; }
+    }
+    $('installmentPreview').textContent = preview;
+    $('saveTxButton').textContent = 'บันทึกแผนผ่อน' + (quote ? ` ${quote.count} เดือน` : '');
+    $('saveHint').textContent = quote ? `เดือนละ ${money(quote.amount)} · ${quote.count} เดือน` : 'ระบุยอดรวมและจำนวนเดือน';
+    $('formSummary').textContent = form.owner === 'Both' ? `แบ่ง${$('installmentBasis').value === 'total' ? 'ยอดรวม' : 'ต่อเดือน'}: เปา ${money(getSplit(amount).Pao)} · ติม ${money(getSplit(amount).Tim)} · แต่ละเดือนจะบันทึกตามสัดส่วนนี้` : `ค่าใช้จ่ายของ${who(form.owner)} · ${who(form.payer)}เป็นคนจ่ายแต่ละงวด`;
+  } else if (form.monthly && !form.editId) {
+    const start = scheduleDate('monthly');
+    $('monthlyPreview').textContent = start ? `เดือนละ ${money(amount)} · ทุกวันที่ ${$('monthlyDay').value} · เริ่ม ${formatMonth(monthKey(start))}` : 'เลือกเดือนเริ่มต้น';
+    $('saveTxButton').textContent = 'บันทึกรายจ่ายประจำเดือน';
+    $('saveHint').textContent = `เดือนละ ${money(amount)} · บันทึกจนกว่าจะพักหรือยกเลิก`;
   }
   if (form.type === 'saving') $('payLabel').textContent = form.savingDirection === 'out' ? 'ถอนกลับไปที่' : 'เงินออกจากไหน';
   $('savingIn').classList.toggle('active',form.savingDirection !== 'out');
@@ -408,7 +480,7 @@ function updateFormSummary() {
 }
 function toggleRecurring(force) {
   form.recurring = typeof force === 'boolean' ? force : !form.recurring;
-  if (form.recurring) { form.installment = false; syncInstallmentForm(); }
+  if (form.recurring) { form.installment = false; form.monthly = false; syncInstallmentForm(); }
   $('recSwitch').classList.toggle('on',form.recurring); $('recBox').classList.toggle('show',form.recurring);
   if (form.recurring && !$('nextRun').value) {
     const next = {nextRun:new Date().toISOString(),frequency:$('freq').value,dayOfMonth:new Date().getDate()};
@@ -418,8 +490,11 @@ function toggleRecurring(force) {
 }
 function resetForm() {
   restoringDraft = true;
-  form = {type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false,savingDirection:'in'};
-  for (const key of ['amount','note','ps','ts','nextRun','cat','categorySearch','installmentCount']) $(key).value = '';
+  form = {type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,recurring:false,installment:false,monthly:false,editId:null,catExpanded:false,savingDirection:'in'};
+  for (const key of ['amount','note','ps','ts','nextRun','cat','categorySearch','installmentCount','planName']) $(key).value = '';
+  document.querySelectorAll('[data-month-day]').forEach(el => { if (!el.options.length) el.innerHTML = Array.from({length:31},(_,i) => `<option value="${i+1}">${i+1}</option>`).join(''); el.value = '1'; });
+  $('installmentStart').value = $('monthlyStart').value = monthKey(new Date());
+  $('installmentBasis').value = 'total';
   $('dt').value = ldt(); $('freq').value = 'monthly';
   $('project').value = ''; $('savingProject').value = ''; $('pocket').value = '';
   $('optionalDetails').open = false;
@@ -435,8 +510,10 @@ function saveTx() {
   clearFieldErrors();
   const amount = parseMoney($('amount').value);
   if (!Number.isFinite(amount) || amount <= 0) return fieldError('amount', 'ใส่จำนวนเงินมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
-  const date = new Date($('dt').value);
-  if (!Number.isFinite(date.getTime())) return fieldError('dt', 'เลือกวันที่และเวลาให้ครบ');
+  const scheduleKind = !form.editId && form.type === 'expense' ? form.installment ? 'installment' : form.monthly ? 'monthly' : null : null;
+  const date = scheduleKind ? scheduleDate(scheduleKind) : new Date($('dt').value);
+  if (!date || !Number.isFinite(date.getTime())) return fieldError(scheduleKind ? scheduleKind + 'Start' : 'dt', 'เลือกเดือนหรือวันที่ให้ครบ');
+  if (scheduleKind && !$('planName').value.trim()) return fieldError('planName','ตั้งชื่อรายการ เช่น ผ่อนโทรศัพท์ หรือค่าเช่าห้อง');
   if (form.type === 'saving' && !$('pocket').value) return fieldError('pocket', 'สร้างหรือเลือกกระเป๋าเงินเก็บก่อนบันทึก');
   if (form.type !== 'saving' && !$('cat').value) return fieldError('catChoices', 'เลือกหมวดหมู่ก่อนบันทึก');
   const split = getSplit(amount);
@@ -449,6 +526,7 @@ function saveTx() {
   const existing = state.transactions.find(t => t.id === form.editId);
   if (form.editId && !existing) return fieldError('formError', 'ไม่พบรายการเดิม รายการอาจถูกลบไปแล้ว');
   const tx = {...existing,id:existing?.id || id(),type:form.type,amount,datetime:existing && ldt(new Date(existing.datetime)) === $('dt').value ? existing.datetime : date.toISOString(),payment:$('pay').value,note:$('note').value.trim(),recurringId:existing?.recurringId || null,recurringGenerated:existing?.recurringGenerated || false};
+  if (scheduleKind) tx.note = [$('planName').value.trim(),tx.note].filter(Boolean).join(' · ');
   delete tx.payer; delete tx.split; delete tx.category; delete tx.pocketId; delete tx.projectId;
   if (form.type === 'income') { tx.category = $('cat').value; tx.owner = form.incOwner; }
   else if (form.type === 'saving') {
@@ -463,28 +541,34 @@ function saveTx() {
   if (!existing && form.type === 'expense' && form.installment) {
     const count = Number($('installmentCount').value);
     if (!Number.isInteger(count) || count < 1 || count > 600) return fieldError('installmentCount','ใส่จำนวนงวดเป็นจำนวนเต็มตั้งแต่ 1 ถึง 600');
-    recurring = {id:id(),kind:'installment',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:date.getDate(),totalInstallments:count,completedInstallments:0,template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    const quote = installmentQuote();
+    if (!quote) return fieldError('amount','ยอดรวมต้องแบ่งได้อย่างน้อยเดือนละ 0.01 บาท และอยู่ในช่วงที่คำนวณได้');
+    const multiplier = $('installmentBasis').value === 'monthly' ? count : 1;
+    recurring = {id:id(),kind:'installment',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('installmentDay').value),totalInstallments:count,completedInstallments:0,installmentTotalAmount:quote.total,installmentTotalSplit:{Pao:Math.round(split.Pao * 100) * multiplier / 100,Tim:Math.round(split.Tim * 100) * multiplier / 100},template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    Object.assign(recurring.template,installmentPayment(recurring,1));
+  } else if (scheduleKind === 'monthly') {
+    recurring = {id:id(),kind:'monthly-expense',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
   } else if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
     const next = new Date($('nextRun').value);
     if (!Number.isFinite(next.getTime()) || next.getTime() <= Date.now()) return fieldError('nextRun', 'เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
     recurring = {id:id(),enabled:true,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
   }
   savingTx = true; $('saveTxButton').disabled = true;
-  const draftKey = form.editId || 'new';
+  const draftKey = currentDraftKey();
   const target = route.from && route.from !== 'add' ? route.from : existing ? 'history' : 'home';
   const oldTx = existing ? clone(existing) : null;
-  const installment = recurring?.kind === 'installment';
+  const scheduled = !!scheduleKind;
   try {
     if (existing) state.transactions = state.transactions.map(t => t.id === tx.id ? tx : t);
-    else if (!installment) state.transactions.push(tx);
+    else if (!scheduled) state.transactions.push(tx);
     if (recurring) state.recurring.push(recurring);
-    if (installment) generateDueTransactions(recurring);
+    if (scheduled) generateDueTransactions(recurring);
     save();
     removeDraft(draftKey);
     highlightTxId = tx.id;
     resetForm(); show(target, {replace:true,restore:!!existing,saved:true});
-    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : installment ? 'บันทึกแผนผ่อนและงวดที่ถึงกำหนดแล้ว' : `บันทึก ${money(amount)} แล้ว`, () => {
-      state.transactions = oldTx ? state.transactions.map(t => t.id === tx.id ? oldTx : t) : state.transactions.filter(t => installment ? t.recurringId !== recurring.id : t.id !== tx.id);
+    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : scheduled ? 'บันทึกแผนแล้ว รายจ่ายจะลงตามเดือนที่ถึงกำหนด' : `บันทึก ${money(amount)} แล้ว`, () => {
+      state.transactions = oldTx ? state.transactions.map(t => t.id === tx.id ? oldTx : t) : state.transactions.filter(t => scheduled ? t.recurringId !== recurring.id : t.id !== tx.id);
       if (recurring) state.recurring = state.recurring.filter(r => r.id !== recurring.id);
       save(); renderAll();
     });
@@ -555,12 +639,12 @@ function advance(r){const d=new Date(r.nextRun);if(r.frequency==='daily')d.setDa
 function generateDueTransactions(rec, now = Date.now()) {
   const installment = rec.kind === 'installment';
   let count = 0;
-  while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : 24)) {
+  while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : rec.kind === 'monthly-expense' ? 1800 : 24)) {
     if (installment && rec.completedInstallments >= rec.totalInstallments) { rec.enabled = false; break; }
     const number = installment ? rec.completedInstallments + 1 : null;
     if (!installment || !state.transactions.some(tx => tx.recurringId === rec.id && tx.installmentNumber === number)) {
       const tx = {...clone(rec.template),id:id(),datetime:rec.nextRun,recurringId:rec.id,recurringGenerated:true};
-      if (installment) { tx.installmentNumber = number; tx.installmentTotal = rec.totalInstallments; }
+      if (installment) { Object.assign(tx,installmentPayment(rec,number)); tx.installmentNumber = number; tx.installmentTotal = rec.totalInstallments; }
       state.transactions.push(tx);
     }
     if (installment) { rec.completedInstallments = number; if (number === rec.totalInstallments) rec.enabled = false; }
@@ -599,12 +683,27 @@ function renderDebt(){const xs=debtTx(),tim=xs.filter(x=>x.timOwes>0),pao=xs.fil
 function settleDebt() {
   const net = Math.round(debtFor() * 100) / 100;
   if (!net) return toastMsg('ไม่มีหนี้ที่ต้องคืน');
-  const from = net > 0 ? 'Tim' : 'Pao', to = net > 0 ? 'Pao' : 'Tim', amount = Math.abs(net);
-  if (!confirm(`บันทึกว่า${who(from)}คืนเงินให้${who(to)} ${money(amount)} แล้ว? ปุ่มนี้ไม่ได้โอนเงินจริง`)) return;
+  settlementSnapshot = net;
+  $('settlementDirection').textContent = net > 0 ? 'ติมคืนเงินให้เปา' : 'เปาคืนเงินให้ติม';
+  $('settlementLimit').textContent = 'ยอดค้างทั้งหมด ' + money(Math.abs(net));
+  $('settlementAmount').value = '';
+  $('settlementError').hidden = true;
+  clearFieldErrors($('settlementModal'));
+  openModal('settlementModal','#settlementAmount');
+}
+function fillSettlementAmount() { $('settlementAmount').value = Math.abs(settlementSnapshot).toFixed(2); clearFieldError('settlementAmount'); }
+function saveSettlement() {
+  const net = Math.round(debtFor() * 100) / 100;
+  if (net !== settlementSnapshot) { closeModal('settlementModal',false); settleDebt(); return toastMsg('ยอดค้างเปลี่ยนแล้ว กรุณาตรวจจำนวนเงินอีกครั้ง'); }
+  const amount = parseMoney($('settlementAmount').value);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > Math.abs(net)) return fieldError('settlementAmount',`ใส่จำนวนมากกว่า 0 และไม่เกิน ${money(Math.abs(net))}`);
+  const from = net > 0 ? 'Tim' : 'Pao', to = net > 0 ? 'Pao' : 'Tim';
   const tx = {id:id(),type:'settlement',amount,datetime:new Date().toISOString(),from,to,note:`คืนเงิน ${who(from)} → ${who(to)}`};
   state.transactions.push(tx);
-  save(); renderAll();
-  toastMsg('บันทึกการคืนเงินแล้ว', () => { state.transactions = state.transactions.filter(t => t.id !== tx.id); save(); renderAll(); });
+  try {
+    save(); closeModal('settlementModal'); renderAll();
+    toastMsg('บันทึกการคืนเงินแล้ว', () => { state.transactions = state.transactions.filter(t => t.id !== tx.id); save(); renderAll(); });
+  } catch(error) { $('settlementError').hidden = false; $('settlementError').textContent = error.message; }
 }
 function renderHomeProjects() {
   $('homeProjects').innerHTML = state.projects.filter(p => p.status === 'Active').slice(0,3).map(project => `<button class="tx" onclick="openProject(${jsArg(project.id)})"><span class="ico" aria-hidden="true">${esc(project.icon || '▣')}</span><span><span class="tx-title">${esc(project.name)}</span><span class="tx-meta">ใช้ทั้งหมด ${money(projectSpend(project.id))}</span></span><span aria-hidden="true">›</span></button>`).join('');
@@ -744,7 +843,7 @@ function renderInstallments() {
   const plans = state.recurring.filter(rec => rec.kind === 'installment');
   const row = (rec, manage) => {
     const remaining = rec.totalInstallments - rec.completedInstallments;
-    const balance = Math.round(rec.template.amount * 100) * remaining / 100;
+    const balance = installmentRemaining(rec);
     const status = remaining === 0 ? 'ครบทุกงวดแล้ว' : rec.enabled ? `งวดถัดไป ${new Date(rec.nextRun).toLocaleDateString('th-TH')}` : 'พักการบันทึกอัตโนมัติ';
     const controls = manage ? `<div class="installment-actions">${remaining ? `<button class="soft" onclick="toggleRec(${jsArg(rec.id)})">${rec.enabled ? 'พัก' : 'ทำต่อ'}</button>` : ''}<button class="danger" onclick="delRec(${jsArg(rec.id)})">${remaining ? 'ยกเลิกแผน' : 'ลบแผน'}</button></div>` : '';
     return `<div class="installment-row"><div class="detail-head"><b>${esc(rec.template.note || rec.template.category || 'รายการผ่อน')}</b><b class="expense">${money(balance)}</b></div><small class="muted">${money(rec.template.amount)} / เดือน · ${who(rec.template.owner)}${rec.template.owner === 'Both' ? ' · เปา ' + money(expenseShare(rec.template)) + ' / งวด' : ''}</small><div class="progress" role="progressbar" aria-label="งวดที่บันทึกแล้ว" aria-valuemin="0" aria-valuemax="${rec.totalInstallments}" aria-valuenow="${rec.completedInstallments}"><div style="width:${rec.completedInstallments / rec.totalInstallments * 100}%"></div></div><div class="detail-head"><span>เหลือ ${remaining} / ${rec.totalInstallments} งวด</span><span class="muted">บันทึกแล้ว ${rec.completedInstallments} งวด</span></div><small class="muted">${status}</small>${controls}</div>`;
@@ -824,10 +923,11 @@ const DRAFT_KEY = KEY + '_drafts';
 let toastTimer = null, undoAction = null, savingTx = false, restoringDraft = false;
 let formBaseline = '', detailTxId = null, highlightTxId = null, pocketFromForm = false;
 let pendingRestore = null, restoringRoute = false;
+let settlementSnapshot = 0;
 let selectedMonth = monthKey(new Date()), historyPeriod = 'all';
 let route = {app:'pt-money',view:'home',detail:null,from:null,scroll:0};
 const viewScroll = {}, quickGuard = new Map();
-const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','note','freq','nextRun','installmentCount'];
+const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','note','freq','nextRun','installmentCount','planName','installmentBasis','installmentStart','installmentDay','monthlyStart','monthlyDay'];
 let draftCache = readDrafts();
 
 function typeLabel(type) { return ({expense:'รายจ่าย',income:'รายรับ',saving:'เงินเก็บ',settlement:'คืนเงิน'})[type] || 'รายการ'; }
@@ -912,7 +1012,7 @@ function draftSignature() {
 }
 function stashDraft() {
   if (restoringDraft || savingTx || currentView() !== 'add') return;
-  const key = form.editId || 'new';
+  const key = currentDraftKey();
   if (draftSignature() === formBaseline) { removeDraft(key); return; }
   draftCache[key] = {...draftSnapshot(),baseline:formBaseline,origin:route.from || 'home',updatedAt:Date.now()};
   try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draftCache)); $('draftStatus').textContent = 'เก็บแบบร่างแล้ว'; }
@@ -926,11 +1026,18 @@ function removeDraft(key) {
 function restoreDraft(key) {
   const draft = draftCache[key];
   if (!draft?.form || !draft.values || !['expense','income','saving'].includes(draft.form.type)) return false;
-  if (key !== 'new' && !state.transactions.some(t => t.id === key)) { removeDraft(key); return false; }
+  if (draft.form.editId && !state.transactions.some(t => t.id === draft.form.editId)) { removeDraft(key); return false; }
   restoringDraft = true;
   form = {...form,...draft.form};
+  if (form.type === 'expense' && form.recurring) { form.monthly = true; form.recurring = false; }
   setType(form.type); renderPays(); renderSelects();
   for (const field of draftFields) if (typeof draft.values[field] === 'string') $(field).value = draft.values[field];
+  if ((form.installment || form.monthly) && !draft.values.installmentStart) {
+    const start = new Date(draft.values.dt);
+    if (Number.isFinite(start.getTime())) { $('installmentStart').value = $('monthlyStart').value = monthKey(start); $('installmentDay').value = $('monthlyDay').value = String(start.getDate()); }
+    $('installmentBasis').value = 'monthly';
+    $('planName').value = draft.values.note || '';
+  }
   $('optionalDetails').open = !!draft.optional;
   toggleRecurring(!!form.recurring); syncInstallmentForm(); syncChoices(); renderCats(); updateSplit(); updateFormSummary();
   formBaseline = draft.baseline || '';
@@ -945,19 +1052,19 @@ function syncChoices() {
 function renderDraftNotice() {
   const drafts = Object.values(draftCache).filter(x => x?.form && (x.form.editId ? state.transactions.some(t => t.id === x.form.editId) : true)).sort((a,b) => b.updatedAt-a.updatedAt);
   $('draftNotice').hidden = !drafts.length;
-  if (drafts.length) $('draftDescription').textContent = `${typeLabel(drafts[0].form.type)} ${drafts[0].values.amount ? money(parseMoney(drafts[0].values.amount) || 0) : ''} · เก็บแบบร่างในแท็บนี้`;
+  if (drafts.length) $('draftDescription').textContent = `${entryLabel(entryKindFor(drafts[0].form))} ${drafts[0].values.amount ? money(parseMoney(drafts[0].values.amount) || 0) : ''}${drafts.length > 1 ? ` · มี ${drafts.length} แบบร่าง แยกตามประเภท` : ' · กรอกต่อจากที่ค้างไว้ได้'}`;
 }
 function resumeLatestDraft() {
   const drafts = Object.entries(draftCache).filter(([,x]) => x?.form).sort((a,b) => b[1].updatedAt-a[1].updatedAt);
   if (!drafts.length) return;
   const [key,draft] = drafts[0];
-  if (key === 'new') openAdd(draft.form.type); else editTx(key);
+  if (draft.form.editId) editTx(draft.form.editId); else openEntry(entryKindFor(draft.form));
 }
 function clearForm() {
   if (draftSignature() !== formBaseline && !confirm(form.editId ? 'คืนค่าฟอร์มเป็นข้อมูลที่บันทึกไว้? การแก้ไขในแบบร่างนี้จะถูกล้าง' : 'ล้างข้อมูลที่กรอกในฟอร์มนี้?')) return;
-  const editId = form.editId;
-  removeDraft(editId || 'new');
-  if (editId) editTx(editId); else resetForm();
+  const editId = form.editId, kind = entryKindFor();
+  removeDraft(currentDraftKey());
+  if (editId) editTx(editId); else openEntry(kind,{fresh:true});
   $('amount').focus();
 }
 function dismissLocalNotice() { state.settings.localNoticeDismissed = true; save(); renderAll(); }
@@ -1034,6 +1141,11 @@ function validateBackup(input) {
     if (!['daily','weekly','monthly'].includes(rec.frequency) || !Number.isFinite(new Date(rec.nextRun).getTime()) || !rec.template) invalid();
     validateTx(rec.template,true);
     if (rec.kind === 'installment' && (rec.frequency !== 'monthly' || rec.template.type !== 'expense' || !Number.isInteger(rec.totalInstallments) || rec.totalInstallments < 1 || rec.totalInstallments > 600 || !Number.isInteger(rec.completedInstallments) || rec.completedInstallments < 0 || rec.completedInstallments > rec.totalInstallments || !Number.isInteger(rec.dayOfMonth) || rec.dayOfMonth < 1 || rec.dayOfMonth > 31)) invalid();
+    if (rec.kind === 'installment' && rec.installmentTotalAmount != null) {
+      const totalCents = Math.round(Number(rec.installmentTotalAmount) * 100), shares = rec.installmentTotalSplit;
+      if (!validNumber(rec.installmentTotalAmount) || !Number.isSafeInteger(totalCents) || totalCents < rec.totalInstallments || !shares || !validNumber(shares.Pao) || !validNumber(shares.Tim) || Number(shares.Pao) < 0 || Number(shares.Tim) < 0 || Math.round(Number(shares.Pao) * 100) + Math.round(Number(shares.Tim) * 100) !== totalCents || Math.round(Number(rec.template.amount) * 100) !== Math.floor(totalCents / rec.totalInstallments)) invalid();
+    }
+    if (rec.kind === 'monthly-expense' && (rec.frequency !== 'monthly' || rec.template.type !== 'expense' || !Number.isInteger(rec.dayOfMonth) || rec.dayOfMonth < 1 || rec.dayOfMonth > 31)) invalid();
   });
   input.pockets.forEach(p => { if (typeof p.name !== 'string' || !validNumber(p.goal ?? 0) || !validNumber(p.openingBalance ?? 0) || Number(p.goal) < 0 || Number(p.openingBalance) < 0) invalid(); });
   input.projects.forEach(p => { if (typeof p.name !== 'string' || !validNumber(p.budget ?? 0) || Number(p.budget) < 0 || !['Planning','Active','Completed','Archived'].includes(p.status)) invalid(); });
@@ -1122,7 +1234,7 @@ window.addEventListener('popstate',event => {
   restoringRoute = true;
   if (route.view === 'add') {
     if (route.editId && state.transactions.some(t => t.id === route.editId)) editTx(route.editId);
-    else openAdd();
+    else openEntry(route.entryKind || 'expense');
   } else show(route.view || 'home',{fromPop:true});
   restoringRoute = false;
   if (route.detail && route.view === 'settings') requestAnimationFrame(() => focusSetting(route.detail));
@@ -1143,7 +1255,7 @@ if (initialRoute) {
   restoringRoute = true;
   if (initialView === 'add') {
     if (route.editId && state.transactions.some(tx => tx.id === route.editId)) editTx(route.editId);
-    else openAdd();
+    else openEntry(route.entryKind || 'expense');
   } else show(initialView,{fromPop:true});
   restoringRoute = false;
 } else if (['history','summary','projects','settings'].includes(initialView)) show(initialView,{replace:true});
