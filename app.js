@@ -710,6 +710,9 @@ function renderHomeProjects() {
 }
 function renderHome(){
  const t=totals(),hideIncome=state.settings.hideIncomeHome!==false;
+ const daily=dailyAllowance(t);
+ $('dailyAvailable').textContent=daily.past?'—':money(daily.amount);
+ $('dailyHint').textContent=daily.past?'เดือนนี้สิ้นสุดแล้ว':`${daily.source} ${money(daily.remaining)} ÷ ${daily.days} วัน${daily.current?'ที่เหลือ (รวมวันนี้)':'ของเดือน'}${daily.remaining<0?' · ยอดใช้จ่ายเกินเงินที่มีแล้ว':''}`;
  $('monthLabel').textContent=new Intl.DateTimeFormat('th-TH',{month:'long',year:'numeric'}).format(new Date());
  $('homeMetrics')?.classList.toggle('privacy-on',hideIncome);
  if($('availableCard'))$('availableCard').hidden=hideIncome;
@@ -1261,4 +1264,58 @@ if (initialRoute) {
 } else if (['history','summary','projects','settings'].includes(initialView)) show(initialView,{replace:true});
 else if (initialView === 'add') openAdd();
 else history.replaceState(route,'','#home');
-syncAddControls(); updateViewportInsets();
+syncAddControls(); updateViewportInsets(); initFloatingAdd();
+
+function dailyAllowance(t=totals(),now=new Date()) {
+ const [year,month]=selectedMonth.split('-').map(Number);
+ const current=selectedMonth===monthKey(now),past=selectedMonth<monthKey(now);
+ const days=new Date(year,month,0).getDate()-(current?now.getDate()-1:0);
+ const budget=Number(state.settings.overallBudget)||0;
+ const remaining=budget>0?budget-t.expense:t.available;
+ return {current,past,days,remaining,amount:Math.floor(Math.max(0,remaining)/days*100)/100,source:budget>0?'งบคงเหลือ':'เงินคงเหลือหลังหักรายจ่ายและเงินเก็บ'};
+}
+
+function initFloatingAdd() {
+ const button=$('fab'); let drag=null,suppressClick=false;
+ function place(x,y) {
+   const bottom=document.querySelector('.bottom');
+   const limit=bottom&&getComputedStyle(bottom).display!=='none'?bottom.getBoundingClientRect().top:window.innerHeight;
+   x=Math.min(Math.max(8,x),Math.max(8,window.innerWidth-button.offsetWidth-8));
+   y=Math.min(Math.max(8,y),Math.max(8,limit-button.offsetHeight-8));
+   button.style.left=x+'px';button.style.top=y+'px';button.style.right='auto';button.style.bottom='auto';
+   return {x,y};
+ }
+ function remember(position) {state.settings.fabPos=position;try{save()}catch(error){toastMsg(error.message)}}
+ function restore() {if(button.offsetWidth&&state.settings.fabPos)place(state.settings.fabPos.x,state.settings.fabPos.y)}
+ button.addEventListener('pointerdown',event=>{
+   if(!event.isPrimary||event.button!==0)return;
+   const rect=button.getBoundingClientRect();suppressClick=false;
+   drag={id:event.pointerId,x:event.clientX,y:event.clientY,left:rect.left,top:rect.top,moved:false};
+   button.setPointerCapture(event.pointerId);
+ });
+ button.addEventListener('pointermove',event=>{
+   if(!drag||drag.id!==event.pointerId)return;
+   const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
+   if(!drag.moved&&Math.hypot(dx,dy)<8)return;
+   drag.moved=true;button.classList.add('dragging');place(drag.left+dx,drag.top+dy);
+ });
+ function finish(event) {
+   if(!drag||drag.id!==event.pointerId)return;
+   suppressClick=drag.moved;
+   if(drag.moved){const rect=button.getBoundingClientRect();remember({x:rect.left,y:rect.top})}
+   drag=null;button.classList.remove('dragging');
+   if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);
+ }
+ button.addEventListener('pointerup',finish);button.addEventListener('pointercancel',finish);
+ button.addEventListener('click',event=>{if(suppressClick&&event.detail!==0){suppressClick=false;return}openAddSheet()});
+ button.addEventListener('keydown',event=>{
+   const directions={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+   if(!directions[event.key])return;
+   event.preventDefault();const rect=button.getBoundingClientRect(),[dx,dy]=directions[event.key],step=event.shiftKey?40:10;
+   remember(place(rect.left+dx*step,rect.top+dy*step));
+ });
+ window.addEventListener('resize',restore);
+ new MutationObserver(()=>requestAnimationFrame(restore)).observe(document.body,{attributes:true,attributeFilter:['data-view']});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderHome()});
+ restore();
+}

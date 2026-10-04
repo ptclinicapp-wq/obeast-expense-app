@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20261003-quick-entry">
+<link rel="stylesheet" href="./styles.css?v=20261004-floating-add">
 </head>
 <body>
 <div class="app">
@@ -49,6 +49,10 @@
  <button class="card go-card" onclick="openHistory('saving')"><span class="label">เงินเก็บสุทธิ <span id="rate"></span></span><span class="value saving" id="saving">฿0</span></button>
 </div>
 <div class="grid homegrid">
+  <article class="card daily-card" aria-labelledby="dailyTitle">
+    <div class="sect"><h2 id="dailyTitle">เงินที่ใช้ได้ต่อวัน</h2><button class="soft" onclick="openBudget()">ตั้งงบ</button></div>
+    <b class="value" id="dailyAvailable">฿0</b><p class="muted" id="dailyHint"></p>
+  </article>
  <div class="grid home-primary">
   <article class="card expand-card" id="budgetCard">
     <div class="sect"><h2>งบรายจ่าย</h2><button class="soft" onclick="openBudget()">ตั้งงบ</button></div>
@@ -147,7 +151,7 @@
 </section>
 
 </div></main></div>
-<button class="fab" id="fab" onclick="openAddSheet()" aria-label="เพิ่มรายการ"><span aria-hidden="true">＋</span> เพิ่มรายการ</button>
+<button class="fab" id="fab" type="button" aria-label="Quick Add เพิ่มรายการ กดเพื่อเพิ่ม ลากเพื่อย้าย หรือใช้ปุ่มลูกศรเพื่อย้าย" title="กดเพื่อเพิ่มรายการ · ลากเพื่อย้าย"><span aria-hidden="true">＋</span> Quick Add</button>
 <nav class="bottom" aria-label="เมนูหลักบนมือถือ"><button data-view="home" class="active" aria-current="page"><span class="nav-ico">⌂</span><span class="nav-label">หน้าหลัก</span></button><button data-view="history"><span class="nav-ico">≡</span><span class="nav-label">รายการ</span></button><button data-view="summary"><span class="nav-ico">◔</span><span class="nav-label">สรุป</span></button><button data-view="projects"><span class="nav-ico">▣</span><span class="nav-label">โปรเจกต์</span></button><button data-view="settings"><span class="nav-ico">⚙</span><span class="nav-label">ตั้งค่า</span></button></nav>
 <div id="addSheet" class="modal add-sheet" role="dialog" aria-modal="true" aria-labelledby="addSheetTitle" aria-hidden="true" onclick="if(event.target===this)closeAddSheet()">
   <div class="modalcard" tabindex="-1">
@@ -265,5 +269,5 @@
 <div class="toast" id="toast" hidden><span id="toastText" role="status" aria-live="polite"></span><button id="toastUndo" class="toast-undo" onclick="undoLastAction()" hidden>เลิกทำ</button></div>
 <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><h2 id="restoreTitle">ตรวจสอบก่อนกู้คืน</h2><p id="restoreFileName" class="muted"></p><div id="restoreComparison"></div><p class="restore-warning">ข้อมูลในไฟล์จะแทนที่รายการและการตั้งค่าปัจจุบันทั้งหมด แอปจะเก็บสำเนาก่อนแทนที่ไว้ให้ย้อนกลับได้</p><div id="restoreError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" onclick="cancelRestore()">ยกเลิก</button><button class="primary" id="confirmRestoreButton" onclick="confirmRestore()">แทนที่ด้วยข้อมูลนี้</button></div></div></div>
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
-<script src="./app.js?v=20261003-quick-entry" defer></script>
+<script src="./app.js?v=20261004-floating-add" defer></script>
 </body></html>

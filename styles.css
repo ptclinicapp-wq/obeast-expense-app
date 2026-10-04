@@ -109,7 +109,7 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
 .entry-shortcut:hover{background:var(--soft)}
 .entry-shortcut>span{color:var(--sage);font-size:22px}
 .legacy-form-control{display:none!important}
-body[data-view=home] .fab{display:none}
+body[data-view=home] .fab{display:flex}
 .entry-kind-field{padding-bottom:16px;border-bottom:1px solid var(--line)}
 .plan-name-field{margin:18px 0 14px}
 #installmentBasisField{margin-top:14px}
@@ -118,6 +118,12 @@ body[data-view=home] .fab{display:none}
 .schedule-options summary{color:var(--sage);cursor:pointer;min-height:36px;padding:7px 0;font-size:14px}
 .schedule-options .field{margin-top:8px}
 .schedule-preview{background:var(--sage2);color:var(--sage);padding:12px;border-radius:12px;font-size:14px;line-height:1.65}
+.daily-card{grid-column:1/-1}
+.fab{display:flex;position:fixed;align-items:center;justify-content:center;gap:6px;right:24px;bottom:24px;width:auto;height:auto;min-height:52px;padding:12px 18px;border:0;border-radius:17px;background:var(--sage);color:var(--on-primary);font-size:16px;font-weight:700;z-index:29;box-shadow:var(--shadow);touch-action:none;user-select:none;cursor:grab}
+.fab span{font-size:24px;line-height:1}
+.fab.dragging{cursor:grabbing;filter:brightness(1.08)}
+body[data-view=add] .fab{display:none}
+@media(max-width:900px){.fab{right:16px;bottom:calc(90px + env(safe-area-inset-bottom))}}
 #installmentBox .schedule-preview{margin-top:12px}
 .schedule-help{font-size:13px;margin:0;line-height:1.6}
 #installmentHelp{display:block;font-size:13px;line-height:1.6}
