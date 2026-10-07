@@ -21,7 +21,7 @@ async function seedAccountingExample(page) {
       cleanTx({id:'partial-return',type:'settlement',amount:200,from:'Tim',to:'Pao',note:'คืนบางส่วน',datetime:at(6)})
     ];
     save(); renderAll(); show('home',{replace:true});
-    return {totals:totals(),debt:debtFor()};
+    return {totals:totals(),debt:debtFor(),dailyRemaining:dailyAllowance(totals()).remaining};
   });
 }
 
@@ -31,10 +31,11 @@ test('personal totals reconcile across Home, ledger and Summary', async ({page})
   await page.setViewportSize({width:390,height:844});
   await cleanStart(page);
   const result = await seedAccountingExample(page);
-  expect(result).toEqual({totals:{income:2000,expense:500,saving:100,available:1400,rate:5},debt:300});
+  expect(result).toEqual({totals:{income:2000,expense:500,saving:100,available:1400,rate:5},debt:300,dailyRemaining:1400});
   await expect(page.locator('#expense')).toContainText('500.00');
   await expect(page.locator('#debtAmt')).toContainText('300.00');
   await expect(page.locator('#dailyHint')).toContainText('รายรับ ฿2,000.00 − รายจ่าย ฿500.00 − เงินเก็บสุทธิ ฿100.00');
+  await expect(page.locator('#dailyHint')).not.toContainText('งบคงเหลือ');
 
   await page.evaluate(() => openHistory('all','mine'));
   await expect(page.locator('#historyList .tx')).toHaveCount(3);
