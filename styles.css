@@ -145,3 +145,21 @@ body[data-view=add] .fab{display:none}
  #installmentBox>.compact-row,#monthlyBox>.compact-row{grid-template-columns:minmax(0,1fr)}
  .sheet-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* Personal ledger v6 */
+.ledger-tabs{margin:0 0 14px;max-width:560px}
+.ledger-tabs button[aria-selected="true"]{background:var(--card);color:var(--text);font-weight:800;box-shadow:0 2px 8px rgba(38,49,44,.08)}
+#paidSplitBox,#incomeSplitBox,#savingSplitBox{border:1px solid var(--line);background:var(--soft)}
+.saving-allocation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:8px}
+.saving-allocation-grid .field{align-content:start}
+.saving-allocation-grid select{margin-top:5px}
+.debt-ledger-link{width:100%;margin-top:12px;background:rgba(255,255,255,.96);color:#385343}
+.review-badge{background:#FFF1D6;color:#80591F}
+.personal-project-stat{grid-template-columns:repeat(2,minmax(0,1fr))}
+.tx-debt-note{display:block;margin-top:3px;color:var(--warn);font-weight:700}
+#userSettings .actions{margin-top:12px}
+#settlementModal .formgrid{margin-top:12px}
+@media(max-width:600px){
+ .saving-allocation-grid{grid-template-columns:minmax(0,1fr)}
+ .ledger-tabs{position:sticky;top:0;z-index:8;box-shadow:0 5px 12px rgba(38,49,44,.06)}
+}

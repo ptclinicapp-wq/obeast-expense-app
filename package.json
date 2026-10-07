@@ -1,0 +1,12 @@
+{
+  "name": "pao-tim-money",
+  "private": true,
+  "scripts": {
+    "check": "node --check finance-core.js && node --check app.js",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

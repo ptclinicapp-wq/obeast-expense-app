@@ -9,7 +9,7 @@ const DEF={
  transactions:[],
  recurring:[]
 };
-let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false};
+let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false};
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function save() {
@@ -930,7 +930,7 @@ let settlementSnapshot = 0;
 let selectedMonth = monthKey(new Date()), historyPeriod = 'all';
 let route = {app:'pt-money',view:'home',detail:null,from:null,scroll:0};
 const viewScroll = {}, quickGuard = new Map();
-const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','note','freq','nextRun','installmentCount','planName','installmentBasis','installmentStart','installmentDay','monthlyStart','monthlyDay'];
+const draftFields = ['amount','dt','cat','project','pay','pocket','savingProject','ps','ts','paoPercent','timPercent','paidPao','paidTim','incomePao','incomeTim','savingPao','savingTim','pocketPao','pocketTim','note','freq','nextRun','installmentCount','planName','installmentBasis','installmentStart','installmentDay','monthlyStart','monthlyDay'];
 let draftCache = readDrafts();
 
 function typeLabel(type) { return ({expense:'รายจ่าย',income:'รายรับ',saving:'เงินเก็บ',settlement:'คืนเงิน'})[type] || 'รายการ'; }
@@ -1319,3 +1319,904 @@ function initFloatingAdd() {
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderHome()});
  restore();
 }
+
+// Personal ledger v6 -------------------------------------------------------
+// Stable participant IDs remain Pao/Tim; names and the primary perspective
+// are settings so old backups and recurring records keep their identity.
+var ledgerMode = 'mine';
+
+function userName(user) {
+  const fallback = user === 'Tim' ? 'ติม' : 'เปา';
+  return state?.settings?.users?.[user]?.name || fallback;
+}
+
+function primaryUser() {
+  return state?.settings?.primaryUser === 'Tim' ? 'Tim' : 'Pao';
+}
+
+function partnerUser() {
+  return FinanceCore.otherUser(primaryUser());
+}
+
+function who(value) {
+  if (value === 'Pao' || value === 'Tim') return userName(value);
+  return `${userName('Pao')} & ${userName('Tim')}`;
+}
+
+function cleanTx(value = {}) {
+  return FinanceCore.normalizeTransaction(cleanObject(value));
+}
+
+function cleanPocket(value = {}) {
+  const pocket = cleanObject(value);
+  const legacyOwner = !['Pao','Tim'].includes(pocket.owner);
+  return {
+    ...pocket,
+    owner:legacyOwner ? 'Pao' : pocket.owner,
+    goal:Math.max(0,num(pocket.goal)),
+    openingBalance:Math.max(0,num(pocket.openingBalance)),
+    needsReview:pocket.needsReview === true || legacyOwner
+  };
+}
+
+function cleanProject(value = {}) {
+  const project = cleanObject(value);
+  const total = Math.max(0,num(project.budgetTotal ?? project.budget));
+  const rawShares = project.budgetShares;
+  const shares = rawShares && Number.isFinite(Number(rawShares.Pao)) && Number.isFinite(Number(rawShares.Tim))
+    ? {Pao:Math.max(0,num(rawShares.Pao)),Tim:Math.max(0,num(rawShares.Tim))}
+    : null;
+  return {...project,budget:total,budgetTotal:total,budgetShares:shares};
+}
+
+function cleanRecurring(value = {}) {
+  const rec = {...cleanObject(value)};
+  const next = new Date(rec.nextRun);
+  const fallbackDay = Number.isFinite(next.getTime()) ? next.getDate() : new Date().getDate();
+  rec.enabled = rec.enabled !== false;
+  rec.frequency = ['daily','weekly','monthly'].includes(rec.frequency) ? rec.frequency : 'monthly';
+  rec.nextRun = Number.isFinite(next.getTime()) ? next.toISOString() : new Date().toISOString();
+  rec.dayOfMonth = Math.min(31,Math.max(1,Math.round(num(rec.dayOfMonth,fallbackDay))));
+  rec.template = cleanTx(rec.template || {});
+  if (rec.kind === 'installment') {
+    rec.frequency = 'monthly';
+    rec.totalInstallments = Math.min(600,Math.max(1,Math.round(num(rec.totalInstallments,1))));
+    rec.completedInstallments = Math.min(rec.totalInstallments,Math.max(0,Math.round(num(rec.completedInstallments))));
+    rec.installmentTotalAmount = Math.abs(num(rec.installmentTotalAmount,rec.template.amount * rec.totalInstallments));
+    rec.installmentTotalShares = FinanceCore.validPair(rec.installmentTotalShares,rec.installmentTotalAmount)
+      ? FinanceCore.pair(rec.installmentTotalShares)
+      : FinanceCore.validPair(rec.installmentTotalSplit,rec.installmentTotalAmount)
+        ? FinanceCore.pair(rec.installmentTotalSplit)
+        : {
+            Pao:FinanceCore.fromCents(FinanceCore.toCents(FinanceCore.expenseShares(rec.template).Pao) * rec.totalInstallments),
+            Tim:FinanceCore.fromCents(FinanceCore.toCents(FinanceCore.expenseShares(rec.template).Tim) * rec.totalInstallments)
+          };
+    rec.installmentTotalPaid = FinanceCore.validPair(rec.installmentTotalPaid,rec.installmentTotalAmount)
+      ? FinanceCore.pair(rec.installmentTotalPaid)
+      : {
+          Pao:FinanceCore.fromCents(FinanceCore.toCents(FinanceCore.expensePaid(rec.template).Pao) * rec.totalInstallments),
+          Tim:FinanceCore.fromCents(FinanceCore.toCents(FinanceCore.expensePaid(rec.template).Tim) * rec.totalInstallments)
+        };
+    rec.installmentTotalSplit = {...rec.installmentTotalShares};
+    if (rec.completedInstallments === rec.totalInstallments) rec.enabled = false;
+  }
+  return rec;
+}
+
+function normalizeState(input = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  const value = clone(DEF);
+  const settings = cleanObject(source.settings);
+  value.schemaVersion = 6;
+  value.settings = {...value.settings,...settings};
+  value.settings.theme = settings.theme === 'dark' ? 'dark' : 'light';
+  value.settings.fabPos = cleanFabPos(settings.fabPos);
+  value.settings.hideIncomeHome = settings.hideIncomeHome !== false;
+  value.settings.primaryUser = settings.primaryUser === 'Tim' ? 'Tim' : 'Pao';
+  value.settings.users = {
+    Pao:{name:String(settings.users?.Pao?.name || 'เปา').trim().slice(0,40) || 'เปา'},
+    Tim:{name:String(settings.users?.Tim?.name || 'ติม').trim().slice(0,40) || 'ติม'}
+  };
+  const legacyPaoBook = {overall:Math.max(0,num(settings.overallBudget)),categories:cleanBudgetMap(source.budgets)};
+  const books = cleanObject(settings.budgetsByUser);
+  value.settings.budgetsByUser = {
+    Pao:{overall:Math.max(0,num(books.Pao?.overall,legacyPaoBook.overall)),categories:cleanBudgetMap(books.Pao?.categories || legacyPaoBook.categories)},
+    Tim:{overall:Math.max(0,num(books.Tim?.overall)),categories:cleanBudgetMap(books.Tim?.categories)}
+  };
+  value.categories = {
+    expense:cleanList(source.categories?.expense,DEF.categories.expense),
+    income:cleanList(source.categories?.income,DEF.categories.income)
+  };
+  value.payments = cleanList(source.payments,DEF.payments).map(item => String(item).trim()).filter(Boolean);
+  if (!value.payments.length) value.payments = clone(DEF.payments);
+  if (!value.payments.includes(value.settings.defaultPayment)) value.settings.defaultPayment = value.payments[0];
+  value.pockets = cleanList(source.pockets,[]).map(cleanPocket);
+  value.projects = cleanList(source.projects,[]).map(cleanProject);
+  value.transactions = cleanList(source.transactions,[]).map(cleanTx);
+  value.recurring = cleanList(source.recurring,[]).map(cleanRecurring);
+  const activeBook = value.settings.budgetsByUser[value.settings.primaryUser];
+  value.settings.overallBudget = activeBook.overall;
+  value.budgets = clone(activeBook.categories);
+  return value;
+}
+
+function validateBackup(input) {
+  const invalid = () => { throw new Error('invalid-backup'); };
+  if (!input || typeof input !== 'object' || !Array.isArray(input.transactions) || !input.settings || !input.categories) invalid();
+  for (const field of ['pockets','projects','recurring','payments']) if (input[field] != null && !Array.isArray(input[field])) invalid();
+  const candidate = normalizeState(input);
+  if (!candidate.payments.length || candidate.payments.some(item => typeof item !== 'string' || !item.trim())) invalid();
+  const ids = new Set();
+  for (const list of [candidate.transactions,candidate.pockets,candidate.projects,candidate.recurring]) {
+    for (const item of list) {
+      if (!item || typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,120}$/.test(item.id) || ids.has(`${list === candidate.transactions ? 't' : list === candidate.pockets ? 'p' : list === candidate.projects ? 'j' : 'r'}:${item.id}`)) invalid();
+      ids.add(`${list === candidate.transactions ? 't' : list === candidate.pockets ? 'p' : list === candidate.projects ? 'j' : 'r'}:${item.id}`);
+    }
+  }
+  for (const tx of candidate.transactions) {
+    if (!['expense','income','saving','settlement'].includes(tx.type) || !Number.isFinite(Number(tx.amount)) || Number(tx.amount) <= 0 || !Number.isFinite(new Date(tx.datetime).getTime())) invalid();
+    if (tx.type === 'expense' && (!FinanceCore.validPair(tx.shares,tx.amount) || !FinanceCore.validPair(tx.paid,tx.amount))) invalid();
+    if (tx.type === 'income' && !FinanceCore.validPair(tx.shares,tx.amount)) invalid();
+    if (tx.type === 'saving' && (!['in','out'].includes(tx.direction) || !tx.allocations.length || Math.abs(FinanceCore.toCents(tx.allocations.reduce((sum,item) => sum + item.amount,0))-FinanceCore.toCents(tx.amount)) > 0)) invalid();
+    if (tx.type === 'settlement' && (!['Pao','Tim'].includes(tx.from) || !['Pao','Tim'].includes(tx.to) || tx.from === tx.to)) invalid();
+  }
+  return candidate;
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return normalizeState();
+    const parsed = JSON.parse(raw);
+    if (Number(parsed.schemaVersion || 5) < 6 && !localStorage.getItem(KEY + '_before_v6')) {
+      try { localStorage.setItem(KEY + '_before_v6',JSON.stringify({createdAt:new Date().toISOString(),raw,state:parsed})); } catch (_) {}
+    }
+    return validateBackup(parsed);
+  } catch (_) {
+    storageReadBlocked = true;
+    return normalizeState();
+  }
+}
+
+function save() {
+  if (storageReadBlocked) throw storageFailure('อ่านข้อมูลเดิมไม่ได้ กรุณาสำรองข้อมูลหรือเปิดเบราว์เซอร์นี้ใหม่ก่อนบันทึก');
+  try {
+    state.schemaVersion = 6;
+    const book = budgetBook();
+    state.settings.overallBudget = book.overall;
+    state.budgets = clone(book.categories);
+    localStorage.setItem(KEY,JSON.stringify(state));
+    lastSavedState = clone(state);
+    $('storageError').hidden = true;
+  } catch (error) {
+    state = clone(lastSavedState);
+    throw storageFailure('พื้นที่จัดเก็บอาจเต็มหรือถูกปิดกั้น ข้อมูลเดิมยังอยู่ กรุณาแก้ไขแล้วบันทึกอีกครั้ง');
+  }
+}
+
+function budgetBook(user = primaryUser()) {
+  state.settings.budgetsByUser ||= {};
+  state.settings.budgetsByUser[user] ||= {overall:0,categories:{}};
+  const book = state.settings.budgetsByUser[user];
+  book.overall = Math.max(0,num(book.overall));
+  book.categories = cleanBudgetMap(book.categories);
+  return book;
+}
+
+function currentMonthTx() {
+  return state.transactions.filter(tx => monthKey(tx.datetime) === selectedMonth);
+}
+
+function expenseShare(tx, user = primaryUser()) {
+  return tx?.type === 'expense' ? FinanceCore.economicShare(tx,user) : 0;
+}
+
+function paoExpenseTotal(list = currentMonthTx()) {
+  return FinanceCore.fromCents(list.reduce((sum,tx) => sum + FinanceCore.toCents(expenseShare(tx,primaryUser())),0));
+}
+
+function totals(list = currentMonthTx(), user = primaryUser()) {
+  return FinanceCore.totals(list,user);
+}
+
+function pocketBalance(pocketId) {
+  const pocket = pocketById(pocketId);
+  let cents = FinanceCore.toCents(pocket?.openingBalance || 0);
+  for (const tx of state.transactions.filter(item => item.type === 'saving')) {
+    const sign = tx.direction === 'out' ? -1 : 1;
+    for (const allocation of FinanceCore.savingAllocations(tx)) if (allocation.pocketId === pocketId) cents += sign * FinanceCore.toCents(allocation.amount);
+  }
+  return FinanceCore.fromCents(cents);
+}
+
+function projectSpend(projectId, monthOnly = false, user = null) {
+  const list = (monthOnly ? currentMonthTx() : state.transactions).filter(tx => tx.type === 'expense' && tx.projectId === projectId);
+  const cents = list.reduce((sum,tx) => sum + FinanceCore.toCents(user ? FinanceCore.economicShare(tx,user) : tx.amount),0);
+  return FinanceCore.fromCents(cents);
+}
+
+function projectSaving(projectId, user = null) {
+  const list = state.transactions.filter(tx => tx.type === 'saving' && tx.projectId === projectId);
+  return FinanceCore.fromCents(list.reduce((sum,tx) => sum + FinanceCore.toCents(user ? FinanceCore.economicShare(tx,user) : (tx.direction === 'out' ? -tx.amount : tx.amount)),0));
+}
+
+function debtFor(list = state.transactions) {
+  return FinanceCore.debtFor(list);
+}
+
+function dailyAllowance(value = totals(), now = new Date()) {
+  const [year,month] = selectedMonth.split('-').map(Number);
+  const current = selectedMonth === monthKey(now), past = selectedMonth < monthKey(now);
+  const days = new Date(year,month,0).getDate() - (current ? now.getDate()-1 : 0);
+  const budget = budgetBook().overall;
+  const availableRemaining = value.available;
+  const budgetRemaining = budget > 0 ? budget-value.expense : Infinity;
+  const remaining = budget > 0 ? Math.min(availableRemaining,budgetRemaining) : availableRemaining;
+  return {current,past,days,remaining,amount:past ? 0 : FinanceCore.fromCents(Math.floor(Math.max(0,remaining)*100/days)),source:budget > 0 ? 'ค่าที่ต่ำกว่าระหว่างเงินเหลือกับงบคงเหลือ' : 'เงินคงเหลือหลังหักรายจ่ายและเงินเก็บ'};
+}
+
+function renderSelects() {
+  const existing = state.transactions.find(tx => tx.id === form.editId);
+  const projectOptions = selected => '<option value="">ไม่ระบุโปรเจกต์</option>' + state.projects.filter(project => project.status !== 'Archived' || project.id === selected || project.id === existing?.projectId).map(project => `<option value="${esc(project.id)}">${esc(project.icon || '▣')} ${esc(project.name)}${project.status === 'Archived' ? ' (เก็บเข้าคลัง)' : ''}</option>`).join('');
+  for (const key of ['project','savingProject']) {
+    const element = $(key), current = element.value;
+    element.innerHTML = projectOptions(current);
+    element.value = [...element.options].some(option => option.value === current) ? current : '';
+  }
+  const pocketOption = pocket => `<option value="${esc(pocket.id)}">${esc(pocket.icon || '💰')} ${esc(pocket.name)} · ${esc(who(pocket.owner))}${pocket.needsReview ? ' · ควรตรวจสอบ' : ''}</option>`;
+  const currentPocket = $('pocket').value || existing?.pocketId || '';
+  $('pocket').innerHTML = state.pockets.length ? '<option value="">เลือกกระเป๋า</option>' + state.pockets.map(pocketOption).join('') : '<option value="">ยังไม่มีกระเป๋า</option>';
+  if ([...$('pocket').options].some(option => option.value === currentPocket)) $('pocket').value = currentPocket;
+  for (const user of ['Pao','Tim']) {
+    const element = $('pocket' + user), current = element.value;
+    const pockets = state.pockets.filter(pocket => pocket.owner === user);
+    element.innerHTML = `<option value="">กระเป๋าของ${esc(who(user))}</option>` + pockets.map(pocketOption).join('');
+    if ([...element.options].some(option => option.value === current)) element.value = current;
+  }
+  const filter = $('projectFilter'), selected = filter.value || 'all';
+  filter.innerHTML = '<option value="all">ทุกโปรเจกต์</option><option value="none">ไม่มีโปรเจกต์</option>' + state.projects.map(project => `<option value="${esc(project.id)}">${esc(project.name)}</option>`).join('');
+  filter.value = [...filter.options].some(option => option.value === selected) ? selected : 'all';
+}
+
+function getPaid(amount) {
+  if (form.payer === 'Pao') return {Pao:amount,Tim:0};
+  if (form.payer === 'Tim') return {Pao:0,Tim:amount};
+  return {Pao:parseMoney($('paidPao').value),Tim:parseMoney($('paidTim').value)};
+}
+
+function getSplit(amount) {
+  if (form.owner === 'Pao') return {Pao:amount,Tim:0};
+  if (form.owner === 'Tim') return {Pao:0,Tim:amount};
+  const paid = getPaid(amount);
+  if (form.split === 'custom') return {Pao:parseMoney($('ps').value),Tim:parseMoney($('ts').value)};
+  if (form.split === 'percent') return FinanceCore.percentSplit(amount,parseMoney($('paoPercent').value),paid);
+  return FinanceCore.halfSplit(amount,paid);
+}
+
+function getIncomeShares(amount) {
+  if (form.incOwner === 'Pao') return {Pao:amount,Tim:0};
+  if (form.incOwner === 'Tim') return {Pao:0,Tim:amount};
+  const custom = {Pao:parseMoney($('incomePao').value),Tim:parseMoney($('incomeTim').value)};
+  return FinanceCore.validPair(custom,amount) ? custom : FinanceCore.halfSplit(amount);
+}
+
+function getSavingAllocations(amount) {
+  if (form.savOwner !== 'Both') return [{user:form.savOwner,amount,pocketId:$('pocket').value || null}];
+  return [
+    {user:'Pao',amount:parseMoney($('savingPao').value),pocketId:$('pocketPao').value || null},
+    {user:'Tim',amount:parseMoney($('savingTim').value),pocketId:$('pocketTim').value || null}
+  ];
+}
+
+function syncComplement(sourceId, otherId) {
+  const amount = parseMoney($('amount').value), share = parseMoney($(sourceId).value);
+  if (!Number.isFinite(amount) || !Number.isFinite(share) || share < 0 || share > amount) { $(otherId).value = ''; return; }
+  $(otherId).value = FinanceCore.fromCents(FinanceCore.toCents(amount)-FinanceCore.toCents(share)).toFixed(2);
+}
+
+function syncCustomSplit(source) {
+  if (form.type !== 'expense' || form.owner !== 'Both' || form.split !== 'custom') return;
+  if (source === 'ps' || source === 'ts') form.splitAnchor = source;
+  const anchor = form.splitAnchor || ($('ps').value.trim() ? 'ps' : $('ts').value.trim() ? 'ts' : null);
+  if (anchor) syncComplement(anchor,anchor === 'ps' ? 'ts' : 'ps');
+}
+
+function syncPaidSplit(source) {
+  if (form.payer !== 'Both') return;
+  form.paidAnchor = source;
+  syncComplement(source,source === 'paidPao' ? 'paidTim' : 'paidPao');
+}
+
+function syncIncomeSplit(source) {
+  if (form.incOwner !== 'Both') return;
+  form.incomeAnchor = source;
+  syncComplement(source,source === 'incomePao' ? 'incomeTim' : 'incomePao');
+}
+
+function syncSavingSplit(source) {
+  if (form.savOwner !== 'Both') return;
+  form.savingAnchor = source;
+  syncComplement(source,source === 'savingPao' ? 'savingTim' : 'savingPao');
+}
+
+function syncPercentSplit(source) {
+  const value = parseMoney($(source).value);
+  const other = source === 'paoPercent' ? 'timPercent' : 'paoPercent';
+  if (!Number.isFinite(value) || value < 0 || value > 100) { $(other).value = ''; return; }
+  $(other).value = FinanceCore.fromCents(10000-FinanceCore.toCents(value)).toFixed(2).replace(/\.00$/,'');
+}
+
+function updateSplit() {
+  const expense = form.type === 'expense';
+  const sharedExpense = expense && form.owner === 'Both';
+  const sharedPayment = expense && form.payer === 'Both';
+  $('splitBox').classList.toggle('show',sharedExpense);
+  $('splitBox').hidden = !sharedExpense;
+  $('paidSplitBox').classList.toggle('show',sharedPayment);
+  $('paidSplitBox').hidden = !sharedPayment;
+  $('customSplit').style.display = sharedExpense && form.split === 'custom' ? 'grid' : 'none';
+  $('percentSplit').style.display = sharedExpense && form.split === 'percent' ? 'grid' : 'none';
+  $('customSplitHelp').hidden = !(sharedExpense && form.split === 'custom');
+  const sharedIncome = form.type === 'income' && form.incOwner === 'Both';
+  $('incomeSplitBox').hidden = !sharedIncome;
+  $('incomeSplitBox').style.display = sharedIncome ? 'block' : 'none';
+  const sharedSaving = form.type === 'saving' && form.savOwner === 'Both';
+  $('savingSplitBox').hidden = !sharedSaving;
+  $('savingSplitBox').style.display = sharedSaving ? 'block' : 'none';
+  const pocketField = $('pocket').closest('.field');
+  if (pocketField) pocketField.style.display = form.type === 'saving' && !sharedSaving ? 'grid' : 'none';
+  if (sharedPayment && !$('paidPao').value && !$('paidTim').value) {
+    const split = FinanceCore.halfSplit(parseMoney($('amount').value) || 0);
+    $('paidPao').value = split.Pao ? split.Pao.toFixed(2) : '';
+    $('paidTim').value = split.Tim ? split.Tim.toFixed(2) : '';
+  }
+  if (sharedIncome && !$('incomePao').value && !$('incomeTim').value) {
+    const split = FinanceCore.halfSplit(parseMoney($('amount').value) || 0);
+    $('incomePao').value = split.Pao ? split.Pao.toFixed(2) : '';
+    $('incomeTim').value = split.Tim ? split.Tim.toFixed(2) : '';
+  }
+  if (sharedSaving && !$('savingPao').value && !$('savingTim').value) {
+    const split = FinanceCore.halfSplit(parseMoney($('amount').value) || 0);
+    $('savingPao').value = split.Pao ? split.Pao.toFixed(2) : '';
+    $('savingTim').value = split.Tim ? split.Tim.toFixed(2) : '';
+  }
+  renderUserLabels();
+}
+
+function updateFormSummary() {
+  const amount = parseMoney($('amount').value) || 0;
+  let summary = '', hint = '';
+  if (form.type === 'income') {
+    const shares = getIncomeShares(amount);
+    hint = form.incOwner === 'Both' ? `${who('Pao')} ${money(shares.Pao)} · ${who('Tim')} ${money(shares.Tim)}` : `รายรับ ${money(amount)} ของ${who(form.incOwner)}`;
+    summary = `<b>${esc(hint)}</b>`;
+  } else if (form.type === 'saving') {
+    const allocations = getSavingAllocations(amount), withdrawal = form.savingDirection === 'out';
+    hint = `${withdrawal ? 'ถอน' : 'ออม'} ${money(amount)}${allocations.length > 1 ? ` · ${who('Pao')} ${money(allocations[0].amount)} · ${who('Tim')} ${money(allocations[1].amount)}` : ''}`;
+    summary = `<b>${esc(hint)}</b><br><small>${withdrawal ? 'คืนเงินไปเหลือใช้ ไม่นับเป็นรายรับ' : 'ลดเงินเหลือใช้ แต่ไม่นับเป็นรายจ่าย'} · ไม่กระทบยอดค้างกัน</small>`;
+  } else {
+    const shares = getSplit(amount), paid = getPaid(amount);
+    const preview = FinanceCore.normalizeTransaction({type:'expense',amount,shares,paid});
+    const delta = FinanceCore.debtDeltaPao(preview);
+    const debtor = delta > 0 ? who('Tim') : who('Pao'), creditor = delta > 0 ? who('Pao') : who('Tim');
+    hint = delta ? `${debtor}ค้าง${creditor} ${money(Math.abs(delta))}` : 'รายการนี้ไม่เพิ่มยอดค้าง';
+    summary = `${who('Pao')}รับผิดชอบ ${money(shares.Pao)} · จ่ายจริง ${money(paid.Pao)}<br>${who('Tim')}รับผิดชอบ ${money(shares.Tim)} · จ่ายจริง ${money(paid.Tim)}<br><b>${esc(hint)}</b>`;
+  }
+  $('formSummary').innerHTML = summary;
+  $('saveHint').textContent = hint;
+  $('saveTxButton').textContent = `${form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
+  if (form.installment && !form.editId) {
+    const quote = installmentQuote(), start = scheduleDate('installment');
+    $('installmentPreview').textContent = quote ? `เดือนละ ${money(quote.amount)} · ${quote.count} เดือน · รวม ${money(quote.total)}${quote.finalAmount !== quote.amount ? ` · เดือนสุดท้าย ${money(quote.finalAmount)}` : ''}${start ? ` · เริ่ม ${formatMonth(monthKey(start))}` : ''}` : 'ใส่ยอดเงินและจำนวนเดือนเพื่อดูยอดผ่อน';
+    $('saveTxButton').textContent = 'บันทึกแผนผ่อน' + (quote ? ` ${quote.count} เดือน` : '');
+  } else if (form.monthly && !form.editId) {
+    const start = scheduleDate('monthly');
+    $('monthlyPreview').textContent = start ? `เดือนละ ${money(amount)} · ทุกวันที่ ${$('monthlyDay').value} · เริ่ม ${formatMonth(monthKey(start))}` : 'เลือกเดือนเริ่มต้น';
+    $('saveTxButton').textContent = 'บันทึกรายจ่ายประจำเดือน';
+  }
+  const pocket = pocketById($('pocket').value);
+  $('pocketBalanceHint').textContent = pocket ? `ยอดคงเหลือ ${money(pocketBalance(pocket.id))} · เจ้าของ ${who(pocket.owner)}` : '';
+  renderUserLabels();
+}
+
+function resetForm() {
+  restoringDraft = true;
+  const primary = primaryUser();
+  form = {type:'expense',payer:primary,owner:primary,incOwner:primary,savOwner:primary,split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,monthly:false,editId:null,catExpanded:false,savingDirection:'in'};
+  for (const key of ['amount','note','ps','ts','paidPao','paidTim','incomePao','incomeTim','savingPao','savingTim','nextRun','cat','categorySearch','installmentCount','planName']) if ($(key)) $(key).value = '';
+  $('paoPercent').value = $('timPercent').value = '50';
+  document.querySelectorAll('[data-month-day]').forEach(element => { if (!element.options.length) element.innerHTML = Array.from({length:31},(_,index) => `<option value="${index+1}">${index+1}</option>`).join(''); element.value = '1'; });
+  $('installmentStart').value = $('monthlyStart').value = monthKey(new Date());
+  $('installmentBasis').value = 'total';
+  $('dt').value = ldt(); $('freq').value = 'monthly';
+  $('project').value = ''; $('savingProject').value = ''; $('pocket').value = ''; $('pocketPao').value = ''; $('pocketTim').value = '';
+  $('optionalDetails').open = false;
+  renderPays(); renderSelects(); setType('expense'); toggleRecurring(false); syncChoices(); clearFieldErrors();
+  formBaseline = draftSignature();
+  $('draftStatus').textContent = '';
+  restoringDraft = false;
+}
+
+function sliceInstallmentPair(totalPair,totalAmount,beforeCents,afterCents) {
+  const total = BigInt(FinanceCore.toCents(totalAmount)), paoTotal = BigInt(FinanceCore.toCents(totalPair.Pao));
+  if (total <= 0n) return {Pao:0,Tim:0};
+  const cumulative = cents => Number((BigInt(cents) * paoTotal + total / 2n) / total);
+  const pao = cumulative(afterCents)-cumulative(beforeCents), amount = afterCents-beforeCents;
+  return {Pao:FinanceCore.fromCents(pao),Tim:FinanceCore.fromCents(amount-pao)};
+}
+
+function installmentPayment(rec, number) {
+  const total = FinanceCore.toCents(rec.installmentTotalAmount), regular = Math.floor(total/rec.totalInstallments);
+  const before = regular*(number-1), after = number === rec.totalInstallments ? total : regular*number;
+  const amount = FinanceCore.fromCents(after-before);
+  const shares = sliceInstallmentPair(rec.installmentTotalShares || rec.installmentTotalSplit,rec.installmentTotalAmount,before,after);
+  const paid = sliceInstallmentPair(rec.installmentTotalPaid || {Pao:rec.template.payer === 'Pao' ? rec.installmentTotalAmount : 0,Tim:rec.template.payer === 'Tim' ? rec.installmentTotalAmount : 0},rec.installmentTotalAmount,before,after);
+  return {amount,shares,paid,split:{...shares},owner:FinanceCore.ownerFromShares(shares),payer:FinanceCore.payerFromPaid(paid)};
+}
+
+function installmentRemaining(rec) {
+  const total = FinanceCore.toCents(rec.installmentTotalAmount || rec.template.amount*rec.totalInstallments);
+  if (rec.completedInstallments >= rec.totalInstallments) return 0;
+  return FinanceCore.fromCents(total-Math.floor(total/rec.totalInstallments)*rec.completedInstallments);
+}
+
+function saveTx() {
+  if (savingTx) return;
+  clearFieldErrors();
+  const amount = parseMoney($('amount').value);
+  if (!Number.isFinite(amount) || amount <= 0) return fieldError('amount','ใส่จำนวนเงินมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
+  const scheduleKind = !form.editId && form.type === 'expense' ? form.installment ? 'installment' : form.monthly ? 'monthly' : null : null;
+  const date = scheduleKind ? scheduleDate(scheduleKind) : new Date($('dt').value);
+  if (!date || !Number.isFinite(date.getTime())) return fieldError(scheduleKind ? scheduleKind+'Start' : 'dt','เลือกเดือนหรือวันที่ให้ครบ');
+  if (scheduleKind && !$('planName').value.trim()) return fieldError('planName','ตั้งชื่อรายการ เช่น ผ่อนโทรศัพท์ หรือค่าเช่าห้อง');
+  if (form.type !== 'saving' && !$('cat').value) return fieldError('catChoices','เลือกหมวดหมู่ก่อนบันทึก');
+  const existing = state.transactions.find(tx => tx.id === form.editId);
+  if (form.editId && !existing) return fieldError('formError','ไม่พบรายการเดิม รายการอาจถูกลบไปแล้ว');
+  let tx = {...existing,id:existing?.id || id(),type:form.type,amount,datetime:existing && ldt(new Date(existing.datetime)) === $('dt').value ? existing.datetime : date.toISOString(),payment:$('pay').value,note:$('note').value.trim(),recurringId:existing?.recurringId || null,recurringGenerated:existing?.recurringGenerated || false};
+  if (scheduleKind) tx.note = [$('planName').value.trim(),tx.note].filter(Boolean).join(' · ');
+  delete tx.shares; delete tx.paid; delete tx.split; delete tx.payer; delete tx.owner; delete tx.allocations; delete tx.direction; delete tx.category; delete tx.pocketId; delete tx.projectId;
+  if (form.type === 'expense') {
+    const shares = getSplit(amount), paid = getPaid(amount);
+    if (!FinanceCore.validPair(shares,amount)) return fieldError(form.split === 'percent' ? 'paoPercent' : 'ps',`ส่วนรับผิดชอบต้องรวมเป็น ${money(amount)}`);
+    if (!FinanceCore.validPair(paid,amount)) return fieldError('paidPao',`ยอดที่จ่ายจริงต้องรวมเป็น ${money(amount)}`);
+    Object.assign(tx,{category:$('cat').value,projectId:$('project').value || null,shares,paid,split:{...shares},owner:FinanceCore.ownerFromShares(shares),payer:FinanceCore.payerFromPaid(paid)});
+  } else if (form.type === 'income') {
+    const shares = getIncomeShares(amount);
+    if (!FinanceCore.validPair(shares,amount)) return fieldError('incomePao',`ส่วนรายรับต้องรวมเป็น ${money(amount)}`);
+    Object.assign(tx,{category:$('cat').value,shares,owner:FinanceCore.ownerFromShares(shares)});
+  } else {
+    const allocations = getSavingAllocations(amount);
+    if (allocations.some(item => !Number.isFinite(item.amount) || item.amount < 0) || FinanceCore.toCents(allocations.reduce((sum,item) => sum+item.amount,0)) !== FinanceCore.toCents(amount)) return fieldError(form.savOwner === 'Both' ? 'savingPao' : 'amount',`ส่วนเงินเก็บต้องรวมเป็น ${money(amount)}`);
+    if (allocations.some(item => !item.pocketId)) return fieldError(form.savOwner === 'Both' ? (allocations[0].pocketId ? 'pocketTim' : 'pocketPao') : 'pocket','เลือกกระเป๋าเงินเก็บให้ครบ');
+    if (form.savingDirection === 'out') for (const allocation of allocations) {
+      const available = pocketBalance(allocation.pocketId) - (existing?.type === 'saving' && existing.direction === 'in' ? existing.allocations.filter(item => item.pocketId === allocation.pocketId).reduce((sum,item) => sum+item.amount,0) : 0);
+      if (allocation.amount > available + .001) return fieldError('amount',`ถอนได้ไม่เกินยอดคงเหลือ ${money(available)}`);
+    }
+    Object.assign(tx,{direction:form.savingDirection,allocations,owner:form.savOwner,pocketId:allocations[0].pocketId,projectId:$('savingProject').value || null});
+  }
+  tx = FinanceCore.normalizeTransaction(tx);
+  if (existing && FinanceCore.toCents(FinanceCore.debtDeltaPao(existing)) !== FinanceCore.toCents(FinanceCore.debtDeltaPao(tx))) {
+    const before = debtFor(), after = FinanceCore.fromCents(FinanceCore.toCents(before)-FinanceCore.toCents(FinanceCore.debtDeltaPao(existing))+FinanceCore.toCents(FinanceCore.debtDeltaPao(tx)));
+    if (!confirm(`การแก้ไขนี้จะเปลี่ยนยอดค้างสุทธิจาก ${money(Math.abs(before))} เป็น ${money(Math.abs(after))} ยืนยันแก้ไข?`)) return;
+  }
+  let recurring = null;
+  if (!existing && form.type === 'expense' && form.installment) {
+    const quote = installmentQuote();
+    if (!quote) return fieldError('amount','ยอดรวมต้องแบ่งได้อย่างน้อยเดือนละ 0.01 บาท');
+    const multiplier = $('installmentBasis').value === 'monthly' ? quote.count : 1;
+    const multiplyPair = value => ({Pao:FinanceCore.fromCents(FinanceCore.toCents(value.Pao)*multiplier),Tim:FinanceCore.fromCents(FinanceCore.toCents(value.Tim)*multiplier)});
+    recurring = {id:id(),kind:'installment',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('installmentDay').value),totalInstallments:quote.count,completedInstallments:0,installmentTotalAmount:quote.total,installmentTotalShares:multiplyPair(tx.shares),installmentTotalPaid:multiplyPair(tx.paid),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    recurring.installmentTotalSplit = {...recurring.installmentTotalShares};
+    Object.assign(recurring.template,installmentPayment(recurring,1));
+  } else if (scheduleKind === 'monthly') {
+    recurring = {id:id(),kind:'monthly-expense',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+  } else if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
+    const next = new Date($('nextRun').value);
+    if (!Number.isFinite(next.getTime()) || next.getTime() <= Date.now()) return fieldError('nextRun','เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
+    recurring = {id:id(),enabled:true,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+  }
+  savingTx = true; $('saveTxButton').disabled = true;
+  const draftKey = currentDraftKey(), oldTx = existing ? clone(existing) : null, scheduled = !!scheduleKind;
+  const target = route.from && route.from !== 'add' ? route.from : existing ? 'history' : 'home';
+  try {
+    if (existing) state.transactions = state.transactions.map(item => item.id === tx.id ? tx : item);
+    else if (!scheduled) state.transactions.push(tx);
+    if (recurring) state.recurring.push(recurring);
+    if (scheduled) generateDueTransactions(recurring);
+    save(); removeDraft(draftKey); highlightTxId = tx.id; resetForm(); show(target,{replace:true,restore:!!existing,saved:true});
+    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : scheduled ? 'บันทึกแผนแล้ว' : `บันทึก ${money(amount)} แล้ว`,() => {
+      state.transactions = oldTx ? state.transactions.map(item => item.id === tx.id ? oldTx : item) : state.transactions.filter(item => scheduled ? item.recurringId !== recurring.id : item.id !== tx.id);
+      if (recurring) state.recurring = state.recurring.filter(item => item.id !== recurring.id);
+      save(); renderAll();
+    });
+  } catch (error) { fieldError('formError',error.message); }
+  finally { savingTx = false; $('saveTxButton').disabled = false; }
+}
+
+function editTx(txid) {
+  const tx = state.transactions.find(item => item.id === txid);
+  if (!tx || tx.type === 'settlement') return;
+  const origin = currentView() === 'add' ? route.from || 'history' : currentView();
+  resetForm(); form.editId = tx.id; setType(tx.type); renderPays(); renderSelects();
+  $('amount').value = Math.abs(tx.amount); $('dt').value = ldt(new Date(tx.datetime)); $('note').value = tx.note || ''; $('pay').value = tx.payment || state.settings.defaultPayment;
+  if (tx.type !== 'saving') { $('cat').value = tx.category || ''; renderCats(); }
+  if (tx.type === 'expense') {
+    const shares = FinanceCore.expenseShares(tx), paid = FinanceCore.expensePaid(tx);
+    form.owner = FinanceCore.ownerFromShares(shares); form.payer = FinanceCore.payerFromPaid(paid); form.split = Math.abs(shares.Pao-shares.Tim) <= .01 ? 'half' : 'custom';
+    $('ps').value = shares.Pao; $('ts').value = shares.Tim; $('paidPao').value = paid.Pao; $('paidTim').value = paid.Tim; $('project').value = tx.projectId || '';
+  } else if (tx.type === 'income') {
+    const shares = FinanceCore.incomeShares(tx); form.incOwner = FinanceCore.ownerFromShares(shares); $('incomePao').value = shares.Pao; $('incomeTim').value = shares.Tim;
+  } else {
+    const allocations = FinanceCore.savingAllocations(tx); form.savOwner = allocations.length > 1 ? 'Both' : allocations[0]?.user || primaryUser(); form.savingDirection = tx.direction;
+    $('savingProject').value = tx.projectId || '';
+    if (form.savOwner === 'Both') {
+      const pao = allocations.find(item => item.user === 'Pao'), tim = allocations.find(item => item.user === 'Tim');
+      $('savingPao').value = pao?.amount || ''; $('savingTim').value = tim?.amount || ''; $('pocketPao').value = pao?.pocketId || ''; $('pocketTim').value = tim?.pocketId || '';
+    } else $('pocket').value = allocations[0]?.pocketId || tx.pocketId || '';
+  }
+  syncChoices(); updateSplit(); updateFormSummary(); $('optionalDetails').open = !!(tx.note || tx.projectId); formBaseline = draftSignature(); restoreDraft(tx.id); show('add',{from:origin});
+}
+
+function renderUserLabels() {
+  if (!state?.settings?.users) return;
+  const primary = primaryUser(), partner = partnerUser();
+  $('brandName').textContent = `${userName('Pao')} & ${userName('Tim')} Money`;
+  $('homeTitle').textContent = `ภาพรวมของ${who(primary)}`;
+  $('expenseLabel').textContent = `รายจ่ายของ${who(primary)}`;
+  $('expenseHint').textContent = `รวมส่วนของ${who(primary)}ในรายการหาร`;
+  $('debtTitle').textContent = `ระหว่าง${who('Pao')} & ${who('Tim')}`;
+  $('grossPaoLabel').textContent = `${who('Pao')}สำรองให้${who('Tim')}`;
+  $('grossTimLabel').textContent = `${who('Tim')}สำรองให้${who('Pao')}`;
+  const labels = {
+    owner:{Pao:`${who('Pao')}${primary === 'Pao' ? ' · ของฉัน' : ' · อีกคน'}`,Tim:`${who('Tim')}${primary === 'Tim' ? ' · ของฉัน' : ' · อีกคน'}`,Both:'หารกัน'},
+    payer:{Pao:who('Pao'),Tim:who('Tim'),Both:'ช่วยกันจ่าย'},
+    incowner:{Pao:who('Pao'),Tim:who('Tim'),Both:'ทั้งคู่'},
+    savowner:{Pao:who('Pao'),Tim:who('Tim'),Both:'ทั้งคู่'}
+  };
+  for (const [attr,map] of Object.entries(labels)) document.querySelectorAll(`[data-${attr}]`).forEach(button => { button.textContent = map[button.dataset[attr]] || button.textContent; });
+  document.querySelector('label[for="ps"]').textContent = `ส่วนของ${who('Pao')}`;
+  document.querySelector('label[for="ts"]').textContent = `ส่วนของ${who('Tim')}`;
+  document.querySelector('label[for="paidPao"]').textContent = `${who('Pao')}จ่าย`;
+  document.querySelector('label[for="paidTim"]').textContent = `${who('Tim')}จ่าย`;
+  document.querySelector('label[for="incomePao"]').textContent = `ส่วนของ${who('Pao')}`;
+  document.querySelector('label[for="incomeTim"]').textContent = `ส่วนของ${who('Tim')}`;
+  document.querySelector('label[for="savingPao"]').textContent = `ส่วนของ${who('Pao')}`;
+  document.querySelector('label[for="savingTim"]').textContent = `ส่วนของ${who('Tim')}`;
+  if ($('primaryUserInput')) {
+    $('primaryUserInput').options[0].textContent = who('Pao');
+    $('primaryUserInput').options[1].textContent = who('Tim');
+  }
+  if ($('ownerFilter')) {
+    const selectedOwner = $('ownerFilter').value;
+    $('ownerFilter').innerHTML = `<option value="all">ทุกคน</option><option value="Pao">${esc(who('Pao'))}</option><option value="Tim">${esc(who('Tim'))}</option><option value="Both">ทั้งคู่ / รายการหาร</option>`;
+    $('ownerFilter').value = ['all','Pao','Tim','Both'].includes(selectedOwner) ? selectedOwner : 'all';
+  }
+  $('budgetModalTitle').textContent = `ตั้งงบรายเดือนของ${who(primary)}`;
+}
+
+function saveUserSettings() {
+  clearFieldErrors($('userSettings'));
+  const pao = $('userNamePao').value.trim(), tim = $('userNameTim').value.trim();
+  if (!pao) return fieldError('userNamePao','ใส่ชื่อคนที่ 1');
+  if (!tim) return fieldError('userNameTim','ใส่ชื่อคนที่ 2');
+  if (pao.toLocaleLowerCase('th-TH') === tim.toLocaleLowerCase('th-TH')) return fieldError('userNameTim','ใช้ชื่อที่ต่างกันเพื่อไม่ให้สับสน');
+  state.settings.users = {Pao:{name:pao.slice(0,40)},Tim:{name:tim.slice(0,40)}};
+  state.settings.primaryUser = $('primaryUserInput').value === 'Tim' ? 'Tim' : 'Pao';
+  const book = budgetBook(); state.settings.overallBudget = book.overall; state.budgets = clone(book.categories);
+  try { save(); resetForm(); renderAll(); toastMsg(`เปลี่ยนมุมมองหลักเป็น ${who(primaryUser())} แล้ว`); }
+  catch (error) { fieldError('userNamePao',error.message); }
+}
+
+function setLedgerMode(mode) {
+  ledgerMode = ['mine','shared','all'].includes(mode) ? mode : 'mine';
+  historyPeriod = selectedMonth;
+  renderPeriodOptions(); renderHistory();
+}
+
+function openSharedLedger() {
+  ledgerMode = 'shared';
+  $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('search').value = ''; $('projectFilter').value = 'all';
+  historyPeriod = selectedMonth; renderPeriodOptions(); show('history',{detail:'shared',from:currentView()});
+}
+
+function openHistory(type = 'all', mode = 'mine') {
+  ledgerMode = ['mine','shared','all'].includes(mode) ? mode : mode === 'PaoShare' ? 'mine' : 'mine';
+  $('typeFilter').value = type; $('ownerFilter').value = 'all'; $('search').value = ''; $('projectFilter').value = 'all';
+  historyPeriod = selectedMonth; renderPeriodOptions(); show('history',{detail:'period',from:currentView()});
+}
+
+function clearHistoryFilters() {
+  historyPeriod = selectedMonth; ledgerMode = 'mine'; $('search').value = ''; $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('projectFilter').value = 'all';
+  renderPeriodOptions(); renderHistory();
+}
+
+function txrow(tx, shareOwner = null, context = null) {
+  const mode = context || (shareOwner ? 'mine' : 'all');
+  const primary = shareOwner || primaryUser();
+  const title = tx.note || tx.category || (tx.type === 'settlement' ? 'คืนเงินกัน' : 'เงินเก็บ');
+  const cls = tx.type === 'income' ? 'income' : tx.type === 'expense' ? 'expense' : 'saving';
+  const date = new Date(tx.datetime).toLocaleDateString('th-TH',{day:'numeric',month:'short'});
+  const project = projectById(tx.projectId), allocations = tx.type === 'saving' ? FinanceCore.savingAllocations(tx) : [];
+  let shown = Math.abs(tx.amount), sign = tx.type === 'income' ? '+' : tx.type === 'expense' ? '−' : tx.type === 'settlement' ? '✓' : tx.direction === 'out' ? '←' : '→';
+  let meta = '', debtNote = '';
+  if (tx.type === 'expense') {
+    const shares = FinanceCore.expenseShares(tx), paid = FinanceCore.expensePaid(tx), delta = FinanceCore.debtDeltaPao(tx);
+    if (mode === 'mine') shown = shares[primary];
+    else if (mode === 'shared') shown = Math.abs(FinanceCore.debtForUser(tx,primary)) || shares[primary] || tx.amount;
+    meta = `${who(FinanceCore.ownerFromShares(shares))} · จ่ายโดย ${paid.Pao > 0 && paid.Tim > 0 ? who('Both') : who(FinanceCore.payerFromPaid(paid))} · ${date}`;
+    if (mode === 'mine') meta += ` · ยอดเต็ม ${money(tx.amount)}`;
+    if (delta) debtNote = `${delta > 0 ? who('Tim')+'ค้าง'+who('Pao') : who('Pao')+'ค้าง'+who('Tim')} ${money(Math.abs(delta))}`;
+  } else if (tx.type === 'income') {
+    shown = mode === 'all' ? tx.amount : FinanceCore.economicShare(tx,primary);
+    meta = `${who(tx.owner)} · ${date}${mode !== 'all' ? ` · ยอดรวม ${money(tx.amount)}` : ''}`;
+  } else if (tx.type === 'saving') {
+    shown = mode === 'all' ? tx.amount : Math.abs(FinanceCore.economicShare(tx,primary));
+    meta = `${tx.direction === 'out' ? 'ถอนกลับมาใช้' : 'ออมเข้า'} · ${allocations.map(item => `${who(item.user)} ${money(item.amount)}`).join(' · ')} · ${date}`;
+  } else {
+    meta = `${who(tx.from)} → ${who(tx.to)} · ${date}`;
+  }
+  const tag = project?.name || (allocations.length === 1 ? pocketById(allocations[0].pocketId)?.name : '');
+  return `<button class="tx ${tx.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(tx.id)}" onclick="openTx(${jsArg(tx.id)})" aria-label="ดู ${esc(title)} ${money(shown)}"><span class="ico" aria-hidden="true">${icon(tx)}</span><span><span class="tx-title">${esc(title)}${tx.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</span><span class="tx-meta">${esc(meta)}</span>${debtNote ? `<span class="tx-debt-note">${esc(debtNote)}</span>` : ''}${tag ? `<span class="tx-tags"><span class="badge project-badge">${esc(tag)}</span></span>` : ''}</span><span class="amt ${cls}">${sign}${money(shown)}</span></button>`;
+}
+
+function renderHistory() {
+  ledgerMode = ['mine','shared','all'].includes(ledgerMode) ? ledgerMode : 'mine';
+  historyPeriod = $('historyPeriod').value || historyPeriod || selectedMonth;
+  const primary = primaryUser(), query = $('search').value.trim().toLowerCase(), type = $('typeFilter').value, owner = $('ownerFilter').value, project = $('projectFilter').value;
+  const inMode = tx => ledgerMode === 'mine' ? tx.type !== 'settlement' && Math.abs(FinanceCore.economicShare(tx,primary)) > .001 : ledgerMode === 'shared' ? tx.type === 'settlement' || FinanceCore.isSharedExpense(tx) : tx.type !== 'settlement';
+  const list = [...state.transactions].filter(tx => inMode(tx) && (historyPeriod === 'all' || monthKey(tx.datetime) === historyPeriod) && (type === 'all' || tx.type === type) && (owner === 'all' || tx.owner === owner) && (project === 'all' || (project === 'none' ? !tx.projectId : tx.projectId === project)) && (!query || `${tx.note || ''} ${tx.category || ''} ${tx.payment || ''} ${projectById(tx.projectId)?.name || ''}`.toLowerCase().includes(query))).sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
+  const labels = {mine:['รายการของฉัน',`รายการที่กระทบ ${who(primary)} ในช่วงเวลาที่เลือก`],shared:['หารกัน',`รายการร่วม สำรองจ่าย และคืนเงินระหว่าง ${who('Pao')} กับ ${who('Tim')}`],all:['รายการทั้งหมด','ข้อมูลรายรับ รายจ่าย และเงินเก็บของทั้งสองคน']};
+  $('historyTitle').textContent = labels[ledgerMode][0]; $('historySubtitle').textContent = labels[ledgerMode][1];
+  for (const [mode,id] of [['mine','ledgerMine'],['shared','ledgerShared'],['all','ledgerAll']]) { $(id).classList.toggle('active',ledgerMode === mode); $(id).setAttribute('aria-selected',String(ledgerMode === mode)); }
+  let day = '';
+  $('historyList').innerHTML = list.map(tx => { const date = new Date(tx.datetime).toLocaleDateString('th-TH',{day:'numeric',month:'long',year:'numeric'}), heading = date !== day ? `<h2 class="date-heading">${date}</h2>` : ''; day = date; return heading + txrow(tx,ledgerMode === 'all' ? null : primary,ledgerMode); }).join('') || '<div class="empty">ไม่พบรายการตามเงื่อนไขนี้<button class="btn" onclick="clearHistoryFilters()">ล้างตัวกรอง</button></div>';
+  const personalTotal = ledgerMode === 'mine' ? list.reduce((sum,tx) => sum + (tx.type === 'expense' ? FinanceCore.economicShare(tx,primary) : 0),0) : null;
+  $('historyCount').textContent = `${list.length} รายการ · ${historyPeriod === 'all' ? 'ทุกช่วงเวลา' : formatMonth(historyPeriod)}${personalTotal != null ? ` · รายจ่ายของ${who(primary)} ${money(personalTotal)}` : ''}`;
+}
+
+function renderPockets(target = 'homePockets') {
+  const element = $(target); if (!element) return;
+  const pockets = target === 'homePockets' ? state.pockets.filter(pocket => pocket.owner === primaryUser()) : state.pockets;
+  element.innerHTML = pockets.map(pocket => {
+    const balance = pocketBalance(pocket.id), percent = pocket.goal > 0 ? Math.max(0,balance/pocket.goal*100) : 0;
+    return `<div class="pocket"><div class="pocket-top"><b>${esc(pocket.icon || '💰')} ${esc(pocket.name)}</b><span class="status">${esc(who(pocket.owner))}</span></div><div class="big">${money(balance)}</div><small>${pocket.goal ? 'เป้าหมาย '+money(pocket.goal) : 'ยังไม่ตั้งเป้าหมาย'}${pocket.needsReview ? ' · ควรตรวจสอบเจ้าของ' : ''}</small>${pocket.goal ? `<div class="progress saving" style="margin-top:9px"><div style="width:${Math.min(100,percent)}%"></div></div>` : ''}</div>`;
+  }).join('') || `<div class="empty">ยังไม่มีกระเป๋าของ${who(primaryUser())}<br><button class="soft" onclick="addPocket()">＋ เพิ่มกระเป๋า</button></div>`;
+}
+
+function renderBudget() {
+  const spent = totals().expense, book = budgetBook(), budget = book.overall, percent = budget > 0 ? spent/budget*100 : 0, over = budget > 0 && spent > budget;
+  $('budUsed').textContent = money(spent); $('budTotal').textContent = money(budget); $('budProg').style.width = Math.min(100,Math.max(0,percent))+'%'; $('budProg').parentElement.classList.toggle('over',over);
+  $('budHint').textContent = !budget ? `ยังไม่ตั้งงบของ${who(primaryUser())}` : `${over ? 'เกินงบ '+money(spent-budget) : 'เหลือ '+money(budget-spent)} · ใช้ไป ${percent.toFixed(0)}%`;
+  $('budHint').className = over ? 'expense' : 'muted'; $('budSpent2').textContent = money(spent); $('budRemain2').textContent = money(Math.max(0,budget-spent));
+  const categories = [...new Set([...Object.keys(book.categories),...currentMonthTx().filter(tx => tx.type === 'expense').map(tx => tx.category)])];
+  const rows = categories.map(category => ({category,limit:Number(book.categories[category] || 0),used:currentMonthTx().filter(tx => tx.type === 'expense' && tx.category === category).reduce((sum,tx) => sum+FinanceCore.economicShare(tx,primaryUser()),0)})).sort((a,b) => b.used-a.used);
+  $('budOver2').textContent = rows.filter(row => row.limit && row.used > row.limit).length+' หมวด';
+  $('budgetDetail').innerHTML = rows.map(row => `<div class="detail-row"><div class="detail-head"><div><b>${esc(row.category)}</b><br><small>${row.limit ? 'งบ '+money(row.limit) : 'ยังไม่ตั้งงบหมวดนี้'}</small></div><div class="detail-right"><b>${money(row.used)}</b>${row.limit ? `<br><small class="${row.used > row.limit ? 'expense' : 'muted'}">${row.used > row.limit ? 'เกิน '+money(row.used-row.limit) : 'เหลือ '+money(row.limit-row.used)}</small>` : ''}</div></div></div>`).join('') || '<p class="empty">ยังไม่มีรายจ่ายในเดือนนี้</p>';
+}
+
+function debtSourceRows() {
+  return state.transactions.map(tx => ({tx,delta:FinanceCore.debtDeltaPao(tx)})).filter(row => Math.abs(row.delta) > .001).sort((a,b) => new Date(b.tx.datetime)-new Date(a.tx.datetime));
+}
+
+function renderDebt() {
+  const rows = debtSourceRows(), expenses = rows.filter(row => row.tx.type === 'expense'), net = debtFor();
+  const timGross = expenses.filter(row => row.delta > 0).reduce((sum,row) => sum+row.delta,0), paoGross = expenses.filter(row => row.delta < 0).reduce((sum,row) => sum-row.delta,0);
+  $('grossTim').textContent = money(timGross); $('grossPao').textContent = money(paoGross); $('debtNet2').textContent = money(Math.abs(net));
+  $('debtLabel').textContent = net > 0 ? `${who('Tim')}ค้าง${who('Pao')}` : net < 0 ? `${who('Pao')}ค้าง${who('Tim')}` : 'ยอดสุทธิ';
+  $('debtAmt').textContent = money(Math.abs(net)); $('debtDesc').textContent = net === 0 ? 'ไม่มีใครค้างใคร' : 'ยอดสะสมหลังหักรายการคืนเงินแล้ว';
+  $('debtActions').innerHTML = Math.abs(net) > .01 ? '<button onclick="event.stopPropagation();settleDebt()">บันทึกคืนเงิน</button>' : '';
+  $('debtTxDetail').innerHTML = rows.slice(0,5).map(({tx,delta}) => `<div class="debt-tx"><div class="ico">${icon(tx)}</div><div><b>${esc(tx.note || tx.category || 'คืนเงิน')}</b><small>${tx.type === 'settlement' ? `${who(tx.from)} → ${who(tx.to)}` : `${delta > 0 ? who('Tim')+'ค้าง'+who('Pao') : who('Pao')+'ค้าง'+who('Tim')} ${money(Math.abs(delta))}`}</small><small>${new Date(tx.datetime).toLocaleDateString('th-TH')}</small></div><b>${money(Math.abs(delta))}</b></div>`).join('') || '<div style="padding:8px 0">ยังไม่มีรายการระหว่างกัน</div>';
+}
+
+function settleDebt() {
+  const net = FinanceCore.fromCents(FinanceCore.toCents(debtFor()));
+  if (!net) return toastMsg('ไม่มีหนี้ที่ต้องคืน');
+  settlementSnapshot = net;
+  $('settlementDirection').textContent = net > 0 ? `${who('Tim')}คืนเงินให้${who('Pao')}` : `${who('Pao')}คืนเงินให้${who('Tim')}`;
+  $('settlementLimit').textContent = 'ยอดค้างทั้งหมด '+money(Math.abs(net)); $('settlementAmount').value = ''; $('settlementDate').value = ldt(); $('settlementNote').value = ''; $('settlementError').hidden = true; clearFieldErrors($('settlementModal')); openModal('settlementModal','#settlementAmount');
+}
+
+function saveSettlement() {
+  const net = FinanceCore.fromCents(FinanceCore.toCents(debtFor()));
+  if (net !== settlementSnapshot) { closeModal('settlementModal',false); settleDebt(); return toastMsg('ยอดค้างเปลี่ยนแล้ว กรุณาตรวจจำนวนอีกครั้ง'); }
+  const amount = parseMoney($('settlementAmount').value), date = new Date($('settlementDate').value);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > Math.abs(net)) return fieldError('settlementAmount',`ใส่จำนวนมากกว่า 0 และไม่เกิน ${money(Math.abs(net))}`);
+  if (!Number.isFinite(date.getTime())) return fieldError('settlementDate','เลือกวันที่และเวลา');
+  const from = net > 0 ? 'Tim' : 'Pao', to = net > 0 ? 'Pao' : 'Tim';
+  const tx = {id:id(),type:'settlement',amount,datetime:date.toISOString(),from,to,note:$('settlementNote').value.trim() || `คืนเงิน ${who(from)} → ${who(to)}`};
+  state.transactions.push(tx);
+  try { save(); closeModal('settlementModal'); renderAll(); toastMsg('บันทึกการคืนเงินแล้ว',() => { state.transactions = state.transactions.filter(item => item.id !== tx.id); save(); renderAll(); }); }
+  catch (error) { $('settlementError').hidden = false; $('settlementError').textContent = error.message; }
+}
+
+function renderHomeProjects() {
+  const user = primaryUser();
+  $('homeProjects').innerHTML = state.projects.filter(project => project.status === 'Active').slice(0,3).map(project => `<button class="tx" onclick="openProject(${jsArg(project.id)})"><span class="ico">${esc(project.icon || '▣')}</span><span><span class="tx-title">${esc(project.name)}</span><span class="tx-meta">ส่วนของ${who(user)}เดือนนี้ ${money(projectSpend(project.id,true,user))} · ยอดเต็ม ${money(projectSpend(project.id,true))}</span></span><span>›</span></button>`).join('');
+}
+
+function renderHome() {
+  const value = totals(), hideIncome = state.settings.hideIncomeHome !== false, daily = dailyAllowance(value), primary = primaryUser();
+  $('dailyAvailable').textContent = daily.past ? '—' : money(daily.amount); $('dailyHint').textContent = daily.past ? 'เดือนนี้สิ้นสุดแล้ว' : `${daily.source} ${money(daily.remaining)} ÷ ${daily.days} วันที่เหลือ${daily.remaining < 0 ? ' · ใช้เกินกรอบแล้ว' : ''}`;
+  $('monthLabel').textContent = formatMonth(selectedMonth); $('homeMetrics').classList.toggle('privacy-on',hideIncome); $('availableCard').hidden = hideIncome; $('incomeCard').hidden = hideIncome;
+  $('available').textContent = money(value.available); $('income').textContent = money(value.income); $('expense').textContent = money(value.expense); $('saving').textContent = money(value.saving); $('rate').textContent = hideIncome ? '' : `อัตราเงินเก็บ ${value.rate.toFixed(1)}%`;
+  const recent = currentMonthTx().filter(tx => tx.type !== 'settlement' && Math.abs(FinanceCore.economicShare(tx,primary)) > .001 && (!hideIncome || tx.type !== 'income')).sort((a,b) => new Date(b.datetime)-new Date(a.datetime)).slice(0,6);
+  $('recent').innerHTML = recent.map(tx => txrow(tx,primary,'mine')).join('') || '<div class="empty">ยังไม่มีรายการของ User หลักในเดือนนี้<br><button class="soft" onclick="openAdd()">＋ เพิ่มรายการแรก</button></div>';
+  const unique = []; for (const tx of recent) { if (!unique.some(item => item.type === tx.type && item.note === tx.note)) unique.push(tx); if (unique.length === 4) break; }
+  $('quick').innerHTML = unique.map(tx => `<div class="quick"><button class="quick-main" onclick="quickAddNow('${tx.id}')"><b>${icon(tx)} ${esc(tx.note || tx.category || 'เงินเก็บ')}</b><small>${money(Math.abs(FinanceCore.economicShare(tx,primary)))} · ส่วนของ${who(primary)}</small></button><button class="quick-edit" onclick="quickAdd('${tx.id}')">แก้ก่อนบันทึก</button></div>`).join('') || '<div class="empty">รายการที่ใช้ซ้ำของ User หลักจะมาอยู่ตรงนี้</div>';
+  renderPockets();
+  const recurring = state.recurring.filter(rec => rec.kind !== 'installment' && rec.enabled && Math.abs(FinanceCore.economicShare(rec.template,primary)) > .001 && (!hideIncome || rec.template.type !== 'income')).sort((a,b) => new Date(a.nextRun)-new Date(b.nextRun)).slice(0,4);
+  $('homeRecurring').innerHTML = recurring.map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'เงินเก็บ')}</b><small class="muted" style="display:block">ครั้งถัดไป ${new Date(rec.nextRun).toLocaleDateString('th-TH')}</small></div><b>${money(Math.abs(FinanceCore.economicShare(rec.template,primary)))}</b></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำของ User หลัก</div>';
+  renderBudget(); renderDebt(); renderHomeProjects();
+}
+
+function renderSummary() {
+  const user = primaryUser(), value = totals(), expenses = currentMonthTx().filter(tx => tx.type === 'expense' && FinanceCore.economicShare(tx,user) > 0);
+  $('sInc').textContent = money(value.income); $('sExp').textContent = money(value.expense); $('sSav').textContent = money(value.saving); $('sAvail').textContent = money(value.available); $('sRate').textContent = `อัตราเงินเก็บ ${value.rate.toFixed(1)}%`;
+  const categories = {}; expenses.forEach(tx => categories[tx.category] = (categories[tx.category] || 0)+FinanceCore.economicShare(tx,user));
+  let max = Math.max(1,...Object.values(categories)); $('catChart').innerHTML = Object.entries(categories).sort((a,b) => b[1]-a[1]).map(([name,amount]) => `<div class="chartrow"><span>${esc(name)}</span><div class="bar"><div style="width:${amount/max*100}%"></div></div><b>${money(amount)}</b></div>`).join('') || '<div class="empty">ยังไม่มีรายจ่ายเดือนนี้</div>';
+  const projects = state.projects.map(project => [project.name,projectSpend(project.id,true,user)]).filter(item => item[1] > 0); max = Math.max(1,...projects.map(item => item[1])); $('projectChart').innerHTML = projects.map(([name,amount]) => `<div class="chartrow"><span>${esc(name)}</span><div class="bar"><div style="width:${amount/max*100}%"></div></div><b>${money(amount)}</b></div>`).join('') || '<div class="empty">เดือนนี้ยังไม่มีการใช้จ่ายโปรเจกต์</div>';
+  const kinds = {ส่วนตัว:0,'หารกัน':0}; expenses.forEach(tx => { const shares = FinanceCore.expenseShares(tx); kinds[shares.Pao > 0 && shares.Tim > 0 ? 'หารกัน' : 'ส่วนตัว'] += FinanceCore.economicShare(tx,user); }); max = Math.max(1,...Object.values(kinds)); $('ownerChart').innerHTML = Object.entries(kinds).map(([name,amount]) => `<div class="chartrow"><span>${name}</span><div class="bar"><div style="width:${amount/max*100}%"></div></div><b>${money(amount)}</b></div>`).join('');
+  const net = debtFor(); $('sumDebt').innerHTML = net === 0 ? 'ไม่มีใครค้างใคร' : `${net > 0 ? who('Tim')+'ค้าง'+who('Pao') : who('Pao')+'ค้าง'+who('Tim')} <b>${money(Math.abs(net))}</b>`;
+  const pockets = state.pockets.filter(pocket => pocket.owner === user); $('pocketSummary').innerHTML = pockets.map(pocket => `<div class="detail-row"><div class="detail-head"><div><b>${esc(pocket.icon || '💰')} ${esc(pocket.name)}</b><br><small class="muted">เป้าหมาย ${money(pocket.goal)}</small></div><b>${money(pocketBalance(pocket.id))}</b></div></div>`).join('') || `<div class="empty">ยังไม่มีกระเป๋าของ${who(user)}</div>`;
+}
+
+function projectCategoryBreakdown(projectId,user = primaryUser(),monthOnly = false) {
+  const categories = {};
+  (monthOnly ? currentMonthTx() : state.transactions).filter(tx => tx.type === 'expense' && tx.projectId === projectId).forEach(tx => { categories[tx.category] = (categories[tx.category] || 0)+FinanceCore.economicShare(tx,user); });
+  return categories;
+}
+
+function renderProjects() {
+  const user = primaryUser(), expanded = new Set([...document.querySelectorAll('.project-card.expanded')].map(element => element.id));
+  $('projectList').innerHTML = [...state.projects].sort((a,b) => (a.status === 'Archived')-(b.status === 'Archived')).map(project => {
+    const personalSpent = projectSpend(project.id,false,user), grossSpent = projectSpend(project.id), monthSpent = projectSpend(project.id,true,user);
+    const totalBudget = Number(project.budgetTotal || project.budget || 0), personalBudget = project.budgetShares ? Number(project.budgetShares[user] || 0) : 0;
+    const percent = personalBudget > 0 ? personalSpent/personalBudget*100 : 0, categories = projectCategoryBreakdown(project.id,user,true), max = Math.max(1,...Object.values(categories));
+    const transactions = currentMonthTx().filter(tx => tx.projectId === project.id && tx.type !== 'settlement').sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
+    const cardId = 'project_'+project.id, panelId = 'projectPanel_'+project.id;
+    return `<article class="card project-card ${expanded.has(cardId) ? 'expanded' : ''}" id="${esc(cardId)}"><div class="project-title"><h2>${esc(project.icon || '▣')} ${esc(project.name)}</h2><span class="status">${esc(statusLabel(project.status))}</span></div><div class="project-stat personal-project-stat"><div><small>ส่วนของ${esc(who(user))}ทั้งหมด</small><b>${money(personalSpent)}</b></div><div><small>ยอดเต็มทั้งหมด</small><b>${money(grossSpent)}</b></div><div><small>งบส่วนของ${esc(who(user))}</small><b>${personalBudget ? money(personalBudget) : 'ยังไม่ตั้ง'}</b></div><div><small>งบรวมโปรเจกต์</small><b>${money(totalBudget)}</b></div></div>${personalBudget ? `<div class="progress ${personalSpent > personalBudget ? 'over' : ''}"><div style="width:${Math.min(100,percent)}%"></div></div><p class="${personalSpent > personalBudget ? 'expense' : 'muted'}">${personalSpent > personalBudget ? 'เกินงบส่วนตัว '+money(personalSpent-personalBudget) : 'เหลืองบส่วนตัว '+money(personalBudget-personalSpent)} · เดือนที่เลือก ${money(monthSpent)}</p>` : `<p class="muted">เดือนที่เลือก ${money(monthSpent)} · ยังไม่ตั้งงบส่วนของ${esc(who(user))}</p>`}<button class="disclosure" data-disclosure="${esc(cardId)}" onclick="toggleProject(${jsArg(project.id)})" aria-expanded="${expanded.has(cardId)}" aria-controls="${esc(panelId)}">ดูหมวดและรายการของเดือน <span>⌄</span></button><div class="project-detail" id="${esc(panelId)}"><h3>ส่วนของ${esc(who(user))}แยกตามหมวด</h3>${Object.entries(categories).sort((a,b) => b[1]-a[1]).map(([category,value]) => `<div class="chartrow"><span>${esc(category)}</span><div class="bar"><div style="width:${value/max*100}%"></div></div><b>${money(value)}</b></div>`).join('') || '<p class="empty">ยังไม่มีรายจ่ายเดือนนี้</p>'}<h3>รายการเดือนที่เลือก</h3>${transactions.map(tx => txrow(tx,user,'mine')).join('') || '<p class="empty">ยังไม่มีรายการ</p>'}<div class="actions"><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้ไขโปรเจกต์</button>${project.status !== 'Archived' ? `<button class="btn" onclick="archiveProject(${jsArg(project.id)})">เก็บเข้าคลัง</button>` : ''}</div></div></article>`;
+  }).join('') || '<div class="empty">ยังไม่มีโปรเจกต์<button class="soft" onclick="addProject()">＋ เพิ่มโปรเจกต์แรก</button></div>';
+}
+
+function addProject() {
+  editingProjectId = null; $('projectModalTitle').textContent = 'เพิ่มโปรเจกต์'; $('projectSaveBtn').textContent = 'เพิ่มโปรเจกต์'; $('projectNameInput').value = ''; $('projectBudgetInput').value = ''; $('projectBudgetPaoInput').value = ''; $('projectBudgetTimInput').value = ''; $('projectIconInput').value = '✈️'; $('projectStatusInput').value = 'Planning'; updateProjectPreview(); openModal('projectModal','#projectNameInput');
+}
+
+function editProject(projectId) {
+  const project = projectById(projectId); if (!project) return;
+  editingProjectId = projectId; $('projectModalTitle').textContent = 'แก้ไขโปรเจกต์'; $('projectSaveBtn').textContent = 'บันทึก'; $('projectNameInput').value = project.name; $('projectBudgetInput').value = project.budgetTotal || project.budget || ''; $('projectBudgetPaoInput').value = project.budgetShares?.Pao ?? ''; $('projectBudgetTimInput').value = project.budgetShares?.Tim ?? ''; $('projectIconInput').value = project.icon || '▣'; $('projectStatusInput').value = project.status || 'Planning'; updateProjectPreview(); openModal('projectModal','#projectNameInput');
+}
+
+function updateProjectPreview() {
+  const name = $('projectNameInput')?.value.trim() || 'ทริปพักผ่อน', icon = $('projectIconInput')?.value || '✈️', total = Number($('projectBudgetInput')?.value || 0), pao = Number($('projectBudgetPaoInput')?.value || 0), tim = Number($('projectBudgetTimInput')?.value || 0);
+  $('projectPreviewName').textContent = `${icon} ${name}`; $('projectPreviewBudget').textContent = `งบรวม ${money(total)} · ${who('Pao')} ${money(pao)} · ${who('Tim')} ${money(tim)} · ${statusLabel($('projectStatusInput')?.value || 'Planning')}`;
+}
+
+function saveProjectModal() {
+  clearFieldErrors($('projectModal'));
+  const name = $('projectNameInput').value.trim(), total = parseMoney($('projectBudgetInput').value || '0');
+  let pao = $('projectBudgetPaoInput').value.trim() === '' ? null : parseMoney($('projectBudgetPaoInput').value), tim = $('projectBudgetTimInput').value.trim() === '' ? null : parseMoney($('projectBudgetTimInput').value);
+  if (!name) return fieldError('projectNameInput','ใส่ชื่อโปรเจกต์');
+  if (!Number.isFinite(total) || total < 0) return fieldError('projectBudgetInput','งบรวมต้องเป็นจำนวนที่ไม่ติดลบ');
+  if (pao !== null && (!Number.isFinite(pao) || pao < 0)) return fieldError('projectBudgetPaoInput','งบส่วนของคนที่ 1 ไม่ถูกต้อง');
+  if (tim !== null && (!Number.isFinite(tim) || tim < 0)) return fieldError('projectBudgetTimInput','งบส่วนของคนที่ 2 ไม่ถูกต้อง');
+  if (pao !== null && tim === null) tim = FinanceCore.fromCents(FinanceCore.toCents(total)-FinanceCore.toCents(pao));
+  if (tim !== null && pao === null) pao = FinanceCore.fromCents(FinanceCore.toCents(total)-FinanceCore.toCents(tim));
+  if ((pao !== null || tim !== null) && (!Number.isFinite(pao) || !Number.isFinite(tim) || pao < 0 || tim < 0 || FinanceCore.toCents(pao)+FinanceCore.toCents(tim) !== FinanceCore.toCents(total))) return fieldError('projectBudgetPaoInput','งบของทั้งสองคนต้องรวมเท่ากับงบรวม');
+  const projectId = editingProjectId || id(), value = {id:projectId,name,budget:total,budgetTotal:total,budgetShares:pao === null ? null : {Pao:pao,Tim:tim},icon:$('projectIconInput').value || '▣',status:$('projectStatusInput').value || 'Planning'};
+  if (editingProjectId) state.projects = state.projects.map(project => project.id === projectId ? {...project,...value} : project); else state.projects.push(value);
+  try { save(); closeProjectModal(); renderAll(); toastMsg('บันทึกโปรเจกต์แล้ว'); } catch (error) { fieldError('projectNameInput',error.message); }
+}
+
+function addPocket(inline = false) {
+  editingPocketId = null; pocketFromForm = inline; $('pocketModalTitle').textContent = 'เพิ่มกระเป๋าเงินเก็บ'; $('pocketSaveBtn').textContent = 'เพิ่มกระเป๋า'; $('pocketNameInput').value = ''; $('pocketGoalInput').value = ''; $('pocketOpeningInput').value = ''; $('pocketOwnerInput').value = primaryUser(); $('pocketIconInput').value = '💰'; fillPocketProjectOptions(''); updatePocketPreview(); openModal('pocketModal','#pocketNameInput');
+}
+
+function editPocket(pocketId) {
+  const pocket = pocketById(pocketId); if (!pocket) return;
+  editingPocketId = pocketId; pocketFromForm = false; $('pocketModalTitle').textContent = 'แก้ไขกระเป๋า'; $('pocketSaveBtn').textContent = 'บันทึก'; $('pocketNameInput').value = pocket.name; $('pocketGoalInput').value = pocket.goal || ''; $('pocketOpeningInput').value = pocket.openingBalance || ''; $('pocketOwnerInput').value = pocket.owner || 'Pao'; $('pocketIconInput').value = pocket.icon || '💰'; fillPocketProjectOptions(pocket.projectId || ''); updatePocketPreview(); openModal('pocketModal','#pocketNameInput');
+}
+
+function updatePocketPreview() {
+  const name = $('pocketNameInput')?.value.trim() || 'กองทุนฉุกเฉิน', icon = $('pocketIconInput')?.value || '💰', goal = Number($('pocketGoalInput')?.value || 0), owner = $('pocketOwnerInput')?.value || primaryUser();
+  $('pocketPreviewName').textContent = `${icon} ${name}`; $('pocketPreviewDetail').textContent = `เจ้าของ ${who(owner)} · เป้าหมาย ${money(goal)}`;
+}
+
+function savePocketModal() {
+  clearFieldErrors($('pocketModal'));
+  const name = $('pocketNameInput').value.trim(), goal = parseMoney($('pocketGoalInput').value || '0'), opening = parseMoney($('pocketOpeningInput').value || '0'), owner = $('pocketOwnerInput').value;
+  if (!name) return fieldError('pocketNameInput','ใส่ชื่อกระเป๋า');
+  if (!Number.isFinite(goal) || goal < 0) return fieldError('pocketGoalInput','เป้าหมายต้องไม่ติดลบ');
+  if (!Number.isFinite(opening) || opening < 0) return fieldError('pocketOpeningInput','ยอดเริ่มต้นต้องไม่ติดลบ');
+  const pocketId = editingPocketId || id(), value = {id:pocketId,name,goal,openingBalance:opening,owner:owner === 'Tim' ? 'Tim' : 'Pao',needsReview:false,icon:$('pocketIconInput').value || '💰',projectId:$('pocketProjectInput').value || null};
+  if (editingPocketId) state.pockets = state.pockets.map(pocket => pocket.id === pocketId ? {...pocket,...value} : pocket); else state.pockets.push(value);
+  const returnToForm = pocketFromForm;
+  try { save(); closePocketModal(); renderAll(); if (returnToForm) { $('pocket').value = pocketId; updateFormSummary(); } toastMsg('บันทึกกระเป๋าแล้ว'); } catch (error) { fieldError('pocketNameInput',error.message); }
+}
+
+function openBudget() {
+  const book = budgetBook(); $('overallBudget').value = book.overall || 0; $('catBudFields').innerHTML = state.categories.expense.map((category,index) => `<div class="field" style="margin-bottom:8px"><label for="catBudget_${index}">${esc(category)}</label><input id="catBudget_${index}" class="input catb" data-cat="${esc(category)}" value="${book.categories[category] || ''}" placeholder="ไม่ตั้งงบ" inputmode="decimal"></div>`).join(''); renderUserLabels(); openModal('budgetModal','#overallBudget');
+}
+
+function saveBudget() {
+  clearFieldErrors($('budgetModal')); const overall = parseMoney($('overallBudget').value || '0');
+  if (!Number.isFinite(overall) || overall < 0) return fieldError('overallBudget','ใส่งบรวมที่ไม่ติดลบ');
+  const categories = {}; for (const input of document.querySelectorAll('.catb')) { const amount = parseMoney(input.value || '0'); if (!Number.isFinite(amount) || amount < 0) return fieldError(input.id,'ใส่งบหมวดนี้ที่ไม่ติดลบ'); if (amount > 0) categories[input.dataset.cat] = amount; }
+  state.settings.budgetsByUser[primaryUser()] = {overall,categories}; state.settings.overallBudget = overall; state.budgets = clone(categories);
+  try { save(); closeBudget(); renderAll(); toastMsg(`บันทึกงบของ${who(primaryUser())}แล้ว`); } catch (error) { fieldError('overallBudget',error.message); }
+}
+
+function renderInstallments() {
+  const user = primaryUser(), plans = state.recurring.filter(rec => rec.kind === 'installment');
+  const row = (rec,manage) => { const remaining = rec.totalInstallments-rec.completedInstallments, balance = installmentRemaining(rec), nextShare = FinanceCore.economicShare(rec.template,user), controls = manage ? `<div class="installment-actions">${remaining ? `<button class="soft" onclick="toggleRec(${jsArg(rec.id)})">${rec.enabled ? 'พัก' : 'ทำต่อ'}</button>` : ''}<button class="danger" onclick="delRec(${jsArg(rec.id)})">${remaining ? 'ยกเลิกแผน' : 'ลบแผน'}</button></div>` : ''; return `<div class="installment-row"><div class="detail-head"><b>${esc(rec.template.note || rec.template.category || 'รายการผ่อน')}</b><b class="expense">${money(balance)}</b></div><small class="muted">ส่วนของ${who(user)}งวดถัดไป ${money(nextShare)} · ยอดเต็ม ${money(rec.template.amount)}</small><div class="progress"><div style="width:${rec.completedInstallments/rec.totalInstallments*100}%"></div></div><div class="detail-head"><span>เหลือ ${remaining} / ${rec.totalInstallments} งวด</span><span class="muted">บันทึกแล้ว ${rec.completedInstallments} งวด</span></div>${controls}</div>`; };
+  const active = plans.filter(rec => rec.completedInstallments < rec.totalInstallments && Math.abs(FinanceCore.economicShare(rec.template,user)) > .001); $('homeInstallments').innerHTML = active.map(rec => row(rec,false)).join('') || '<p class="empty">ยังไม่มีรายการผ่อนของ User หลัก</p>'; if (plans.length) $('homeInstallments').innerHTML += '<button class="btn" onclick="openSettingsSection(\'installmentList\')">จัดการรายการผ่อน</button>'; $('installmentList').innerHTML = plans.map(rec => row(rec,true)).join('') || '<p class="empty">ยังไม่มีรายการผ่อน</p>';
+}
+
+function renderSettings() {
+  $('userNamePao').value = userName('Pao'); $('userNameTim').value = userName('Tim'); $('primaryUserInput').value = primaryUser();
+  $('payments').innerHTML = state.payments.map((payment,index) => `<div class="setrow"><div><b>${esc(payment)}</b><small class="muted" style="display:block">${payment === state.settings.defaultPayment ? 'ค่าเริ่มต้น' : ''}</small></div><div>${payment !== state.settings.defaultPayment ? `<button class="soft" onclick="setDefaultByIndex(${index})">ตั้งเป็นค่าเริ่มต้น</button>` : ''} ${state.payments.length > 1 && payment !== state.settings.defaultPayment ? `<button class="danger" onclick="removePayByIndex(${index})">ลบ</button>` : ''}</div></div>`).join('');
+  $('pocketSettings').innerHTML = state.pockets.map(pocket => `<div class="setrow"><div><b>${esc(pocket.icon || '💰')} ${esc(pocket.name)} <span class="badge">${esc(who(pocket.owner))}</span>${pocket.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</b><small class="muted" style="display:block">${money(pocketBalance(pocket.id))} / ${money(pocket.goal)}</small></div><button class="soft" onclick="editPocket(${jsArg(pocket.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>';
+  $('recList').innerHTML = state.recurring.filter(rec => rec.kind !== 'installment').map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'รายการประจำ')} · ${money(Math.abs(FinanceCore.economicShare(rec.template,primaryUser())))}</b><small class="muted" style="display:block">ส่วนของ${who(primaryUser())} · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${rec.enabled ? 'on' : ''}" onclick="toggleRec(${jsArg(rec.id)})"></button> <button class="danger" onclick="delRec(${jsArg(rec.id)})">ลบ</button></div></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำ</div>';
+  const book = budgetBook(); $('budSettings').innerHTML = `<div class="setrow"><div><b>งบรวมของ${esc(who(primaryUser()))}</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(book.overall)}</b></div>` + Object.entries(book.categories).map(([category,limit]) => `<div class="setrow"><div>${esc(category)}</div><b>${money(limit)}</b></div>`).join('');
+  $('projectSettings').innerHTML = state.projects.map(project => `<div class="setrow"><div><b>${esc(project.icon || '▣')} ${esc(project.name)}</b><small class="muted" style="display:block">งบรวม ${money(project.budgetTotal || project.budget)} · ส่วนของ${who(primaryUser())} ${project.budgetShares ? money(project.budgetShares[primaryUser()]) : 'ยังไม่ตั้ง'}</small></div><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีโปรเจกต์</div>';
+  $('themeSwitch').classList.toggle('on',state.settings.theme === 'dark'); $('homeIncomeSwitch').classList.toggle('on',state.settings.hideIncomeHome !== false); renderUserLabels();
+}
+
+function setPeriod(value) {
+  if (!/^\d{4}-\d{2}$/.test(value)) return;
+  selectedMonth = value; historyPeriod = value; renderAll();
+}
+
+function renderPeriodOptions() {
+  document.querySelectorAll('[data-period]').forEach(element => element.value = selectedMonth);
+  const months = new Set([selectedMonth,monthKey(new Date()),...state.transactions.map(tx => monthKey(tx.datetime))]);
+  $('historyPeriod').innerHTML = '<option value="all">ทุกช่วงเวลา</option>' + [...months].filter(Boolean).sort().reverse().map(month => `<option value="${month}">${formatMonth(month)}</option>`).join('');
+  if (![...$('historyPeriod').options].some(option => option.value === historyPeriod)) historyPeriod = selectedMonth;
+  $('historyPeriod').value = historyPeriod;
+}
+
+function openTx(txid) {
+  const tx = state.transactions.find(item => item.id === txid); if (!tx) return;
+  detailTxId = txid; const label = tx.note || tx.category || typeLabel(tx.type); $('txModalTitle').textContent = label;
+  const fields = [['ประเภท',typeLabel(tx.type)],['วันที่',new Date(tx.datetime).toLocaleString('th-TH')],['ยอดเต็ม',money(Math.abs(tx.amount))]];
+  if (tx.type === 'expense') { const shares = FinanceCore.expenseShares(tx), paid = FinanceCore.expensePaid(tx), delta = FinanceCore.debtDeltaPao(tx); fields.push([`ส่วนของ${who('Pao')}`,money(shares.Pao)],[`ส่วนของ${who('Tim')}`,money(shares.Tim)],[`${who('Pao')}จ่ายจริง`,money(paid.Pao)],[`${who('Tim')}จ่ายจริง`,money(paid.Tim)],['ผลต่อยอดค้าง',delta === 0 ? 'ไม่เพิ่มยอดค้าง' : `${delta > 0 ? who('Tim')+'ค้าง'+who('Pao') : who('Pao')+'ค้าง'+who('Tim')} ${money(Math.abs(delta))}`]); }
+  else if (tx.type === 'income') { const shares = FinanceCore.incomeShares(tx); fields.push([`ส่วนของ${who('Pao')}`,money(shares.Pao)],[`ส่วนของ${who('Tim')}`,money(shares.Tim)]); }
+  else if (tx.type === 'saving') for (const allocation of FinanceCore.savingAllocations(tx)) fields.push([`${tx.direction === 'out' ? 'ถอนของ' : 'ออมของ'}${who(allocation.user)}`,`${money(allocation.amount)} · ${pocketById(allocation.pocketId)?.name || 'กระเป๋าเดิม'}`]);
+  else fields.push(['คืนเงิน',`${who(tx.from)} → ${who(tx.to)}`]);
+  if (tx.projectId) fields.push(['โปรเจกต์',projectById(tx.projectId)?.name || 'โปรเจกต์เดิม']); if (tx.needsReview) fields.push(['สถานะ','รายการจากข้อมูลเดิม ควรตรวจสอบส่วนแบ่ง']);
+  $('txDetailContent').innerHTML = `<dl class="tx-info">${fields.map(([name,value]) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`; $('txEditButton').hidden = tx.type === 'settlement'; $('txEditButton').setAttribute('aria-label','แก้ไข '+label); $('txDeleteButton').setAttribute('aria-label','ลบ '+label); openModal('txModal');
+}
+
+function deleteTx(txid) {
+  const tx = state.transactions.find(item => item.id === txid); if (!tx) return;
+  const before = debtFor(), after = FinanceCore.fromCents(FinanceCore.toCents(before)-FinanceCore.toCents(FinanceCore.debtDeltaPao(tx)));
+  const affectsDebt = Math.abs(FinanceCore.debtDeltaPao(tx)) > .001;
+  const message = affectsDebt ? `ลบ ${tx.note || tx.category || 'รายการนี้'}? ยอดค้างสุทธิจะเปลี่ยนจาก ${money(Math.abs(before))} เป็น ${money(Math.abs(after))}` : `ลบ ${tx.note || tx.category || 'รายการนี้'} ${money(Math.abs(tx.amount))}?`;
+  if (!confirm(message)) return;
+  state.transactions = state.transactions.filter(item => item.id !== txid);
+  try { save(); removeDraft(txid); if (visibleModal()) closeTopModal(); renderAll(); toastMsg('ลบรายการแล้ว',() => { if (!state.transactions.some(item => item.id === tx.id)) state.transactions.push(tx); save(); renderAll(); }); } catch (error) { toastMsg(error.message); }
+}
+
+function exportCSV() {
+  const rows = [['datetime','type','gross_amount','category','payment','pao_share','tim_share','pao_paid','tim_paid','saving_direction','saving_allocations','project','settlement_from','settlement_to','needs_review','note'],...state.transactions.map(tx => { const shares = tx.type === 'expense' ? FinanceCore.expenseShares(tx) : tx.type === 'income' ? FinanceCore.incomeShares(tx) : {Pao:'',Tim:''}, paid = tx.type === 'expense' ? FinanceCore.expensePaid(tx) : {Pao:'',Tim:''}; return [tx.datetime,tx.type,tx.amount,tx.category || '',tx.payment || '',shares.Pao,shares.Tim,paid.Pao,paid.Tim,tx.direction || '',tx.type === 'saving' ? FinanceCore.savingAllocations(tx).map(item => `${item.user}:${item.amount}:${pocketById(item.pocketId)?.name || item.pocketId}`).join('|') : '',projectById(tx.projectId)?.name || '',tx.from || '',tx.to || '',tx.needsReview ? 'yes' : '',tx.note || '']; })];
+  download('\ufeff'+rows.map(row => row.map(value => `"${String(value).replace(/"/g,'""')}"`).join(',')).join('\n'),'pao-tim-money-v6.csv','text/csv;charset=utf-8');
+}
+
+function backup() {
+  const when = new Date().toISOString();
+  download(JSON.stringify({...state,backupMeta:{version:6,createdAt:when}},null,2),`pao-tim-backup-v6-${when.slice(0,10)}.json`,'application/json');
+  try { localStorage.setItem(BACKUP_TIME_KEY,when); } catch (_) {}
+  renderBackupStatus(); toastMsg('สร้างไฟล์สำรอง v6 แล้ว');
+}
+
+function renderAll() {
+  renderPays(); renderSelects(); renderCats(); renderPeriodOptions(); renderHome(); renderHistory(); renderSummary(); renderProjects(); renderSettings(); renderInstallments(); updateSplit(); updateFormSummary(); syncA11yState(); syncAddControls(); syncBackButton(); renderBackupStatus(); renderDraftNotice(); renderUserLabels();
+  $('localNotice').hidden = !!state.settings.localNoticeDismissed; $('homePocketsCard').hidden = !state.pockets.some(pocket => pocket.owner === primaryUser()); $('homeRecurringCard').hidden = !state.recurring.some(rec => rec.kind !== 'installment' && rec.enabled && Math.abs(FinanceCore.economicShare(rec.template,primaryUser())) > .001); $('homeProjectsCard').hidden = !state.projects.some(project => project.status === 'Active'); $('setupCard').hidden = state.pockets.length > 0 && state.recurring.length > 0 && state.projects.length > 0; $('quickCard').hidden = !$('quick').querySelector('.quick'); $('monthLabel').textContent = formatMonth(selectedMonth);
+}
+
+document.addEventListener('input',event => {
+  if (['projectBudgetPaoInput','projectBudgetTimInput'].includes(event.target?.id)) updateProjectPreview();
+});
+document.addEventListener('change',event => {
+  if (event.target?.id === 'pocketOwnerInput') updatePocketPreview();
+});

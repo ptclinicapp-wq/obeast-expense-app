@@ -4,12 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20261004-plus-only">
+<link rel="stylesheet" href="./styles.css?v=20261007-personal-ledger">
 </head>
 <body>
 <div class="app">
 <aside class="side" aria-label="ข้อมูลแอปและเมนูหลัก">
-  <div class="brand"><div class="logo">P&T</div><div><b>Pao & Tim Money</b><small>บันทึกเงินของเราสองคน</small></div></div>
+  <div class="brand"><div class="logo">P&T</div><div><b id="brandName">Pao & Tim Money</b><small id="brandSubtitle">บัญชีส่วนตัวและบัญชีระหว่างกัน</small></div></div>
   <nav class="nav" aria-label="เมนูหลัก">
     <button data-view="home" class="active" aria-current="page">⌂ หน้าหลัก</button>
     <button data-view="history">≡ รายการ</button>
@@ -25,7 +25,7 @@
 <button id="backButton" class="back-btn" onclick="goBack()" type="button" hidden aria-label="กลับไปหน้าก่อนหน้า">‹ กลับ</button>
 
 <section id="home" class="view active">
-<div class="head"><div><p class="eyebrow">PAO & TIM MONEY</p><h1 tabindex="-1">เงินของเราสองคน</h1><p id="monthLabel"></p></div><button class="btn icon-btn" onclick="toggleTheme()" aria-label="สลับธีมมืดและสว่าง">☾</button></div>
+<div class="head"><div><p class="eyebrow">PAO & TIM MONEY</p><h1 id="homeTitle" tabindex="-1">ภาพรวมของเปา</h1><p id="monthLabel"></p></div><button class="btn icon-btn" onclick="toggleTheme()" aria-label="สลับธีมมืดและสว่าง">☾</button></div>
 <div id="localNotice" class="notice" hidden><div><b>บันทึกไว้บนเครื่องนี้</b><p>ข้อมูลอยู่ในเบราว์เซอร์นี้เท่านั้น ยังไม่แชร์ไปอีกเครื่อง ควรสำรองข้อมูลไว้เป็นระยะ</p></div><div class="actions"><button class="soft" onclick="backup()">สำรองข้อมูล</button><button class="btn" onclick="dismissLocalNotice()">เข้าใจแล้ว</button></div></div>
 <div id="draftNotice" class="notice draft-notice" hidden><div><b>มีรายการที่ยังบันทึกไม่เสร็จ</b><p id="draftDescription"></p></div><button class="soft" onclick="resumeLatestDraft()">ทำต่อ</button></div>
 <article class="card entry-launcher" aria-labelledby="entryLauncherTitle">
@@ -45,7 +45,7 @@
 <div class="grid metrics" id="homeMetrics">
  <button class="card go-card" id="availableCard" onclick="show('summary')"><span class="label">เหลือใช้ในเดือนนี้</span><span class="value" id="available">฿0</span></button>
  <button class="card go-card" id="incomeCard" onclick="openHistory('income')"><span class="label">รายรับ</span><span class="value income" id="income">฿0</span></button>
- <button class="card go-card" onclick="openHistory('expense','PaoShare')"><span class="label">รายจ่ายของเปา</span><span class="value expense" id="expense">฿0</span><small class="muted">รวมส่วนของเปาในรายการหาร</small></button>
+ <button class="card go-card" onclick="openHistory('expense','mine')"><span class="label" id="expenseLabel">รายจ่ายของเปา</span><span class="value expense" id="expense">฿0</span><small class="muted" id="expenseHint">รวมส่วนของเปาในรายการหาร</small></button>
  <button class="card go-card" onclick="openHistory('saving')"><span class="label">เงินเก็บสุทธิ <span id="rate"></span></span><span class="value saving" id="saving">฿0</span></button>
 </div>
 <div class="grid homegrid">
@@ -61,10 +61,10 @@
     <div class="detail" id="budgetPanel"><div class="mini3"><div><small>ใช้ไป</small><b id="budSpent2"></b></div><div><small>เหลือ</small><b id="budRemain2"></b></div><div><small>หมวดที่เกินงบ</small><b id="budOver2"></b></div></div><div id="budgetDetail"></div></div>
   </article>
   <article class="card debt expand-card" id="debtCard">
-    <div class="sect"><h2>ระหว่างเปา & ติม</h2><span class="status">ยอดสะสมทุกเดือน</span></div>
+    <div class="sect"><h2 id="debtTitle">ระหว่างเปา & ติม</h2><span class="status">ยอดสะสมทุกเดือน</span></div>
     <div class="debt-main"><div><span id="debtLabel">ยอดสุทธิ</span><div id="debtAmt" class="value">฿0</div></div><div id="debtActions" class="debt-actions"></div></div><p id="debtDesc" class="muted-white"></p>
     <button class="disclosure" data-disclosure="debtCard" onclick="toggleCard('debtCard')" aria-expanded="false" aria-controls="debtPanel">ดูรายการต้นทาง <span aria-hidden="true">⌄</span></button>
-    <div class="detail" id="debtPanel"><div class="mini3"><div><small>ยอดฝั่งติม</small><b id="grossTim"></b></div><div><small>ยอดฝั่งเปา</small><b id="grossPao"></b></div><div><small>ยอดสุทธิ</small><b id="debtNet2"></b></div></div><div id="debtTxDetail"></div></div>
+    <div class="detail" id="debtPanel"><div class="mini3"><div><small id="grossTimLabel">ยอดฝั่งติม</small><b id="grossTim"></b></div><div><small id="grossPaoLabel">ยอดฝั่งเปา</small><b id="grossPao"></b></div><div><small>ยอดสุทธิ</small><b id="debtNet2"></b></div></div><div id="debtTxDetail"></div><button class="btn debt-ledger-link" type="button" onclick="openSharedLedger()">ดูบัญชีหารกันทั้งหมด</button></div>
   </article>
   <article class="card"><div class="sect"><h2>รายการล่าสุด</h2><button class="soft" onclick="openHistory('all')">ดูทั้งหมด</button></div><div id="recent"></div></article>
   <article class="card" id="quickCard"><div class="sect"><div><h2>เพิ่มด่วน</h2><p class="muted">ใช้รายละเอียดเดิม บันทึกวันที่วันนี้</p></div></div><div class="quickrow" id="quick"></div></article>
@@ -92,13 +92,16 @@
   <div class="field full box" id="monthlyBox" hidden><div class="compact-row"><div class="field"><label for="monthlyStart">เดือนที่เริ่ม</label><div class="date-control"><input id="monthlyStart" class="input" type="month"></div></div><div class="field"><label for="monthlyDay">บันทึกทุกวันที่</label><select id="monthlyDay" class="input" data-month-day></select></div></div><p id="monthlyPreview" class="schedule-preview" role="status"></p></div>
   <p id="scheduleHelp" class="field full muted schedule-help" hidden>เปิดเว็บแล้วระบบจะบันทึกรอบที่ถึงกำหนดให้ หากเดือนนั้นไม่มีวันที่เลือก จะใช้วันสุดท้ายของเดือน</p>
   <div class="field full nonSaving"><label id="catLabel">หมวดหมู่</label><input id="cat" type="hidden"><div id="catChoices" class="choices category-picks" role="group" aria-labelledby="catLabel"></div><div id="categorySearchBox" hidden><label class="sr-only" for="categorySearch">ค้นหาหมวดหมู่</label><input id="categorySearch" class="input" type="search" placeholder="ค้นหาหมวดหมู่" oninput="renderCats()"></div></div>
-  <div class="field expOnly"><label id="payerLabel">ใครจ่ายเงินจริง</label><div class="choices" role="group" aria-labelledby="payerLabel"><button class="choice active" data-payer="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-payer="Tim" type="button" aria-pressed="false">ติม</button></div></div>
+  <div class="field expOnly"><label id="payerLabel">ใครจ่ายเงินจริง</label><div class="choices" role="group" aria-labelledby="payerLabel"><button class="choice active" data-payer="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-payer="Tim" type="button" aria-pressed="false">ติม</button><button class="choice" data-payer="Both" type="button" aria-pressed="false">ช่วยกันจ่าย</button></div></div>
   <div class="field expOnly"><label id="ownerLabel">ค่าใช้จ่ายเป็นของใคร</label><div class="choices" role="group" aria-labelledby="ownerLabel"><button class="choice active" data-owner="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-owner="Tim" type="button" aria-pressed="false">ติม</button><button class="choice" data-owner="Both" type="button" aria-pressed="false">ทั้งคู่</button></div></div>
-  <div class="field full box" id="splitBox" aria-labelledby="splitLabel"><label id="splitLabel">แบ่งค่าใช้จ่าย</label><div class="choices" role="group" aria-labelledby="splitLabel"><button class="choice active" data-split="half" type="button" aria-pressed="true">หารครึ่ง</button><button class="choice" data-split="custom" type="button" aria-pressed="false">กำหนดเอง</button></div><div id="customSplit" class="compact-row" style="display:none"><div class="field"><label for="ps">ส่วนของเปา</label><input id="ps" class="input" inputmode="decimal" oninput="syncCustomSplit('ps');updateFormSummary()"></div><div class="field"><label for="ts">ส่วนของติม</label><input id="ts" class="input" inputmode="decimal" oninput="syncCustomSplit('ts');updateFormSummary()"></div></div><small id="customSplitHelp" class="muted" hidden>ใส่ยอดของคนใดคนหนึ่ง อีกช่องจะเติมยอดที่เหลือให้</small></div>
+  <div class="field full box" id="paidSplitBox" aria-labelledby="paidSplitLabel"><label id="paidSplitLabel">ยอดที่แต่ละคนจ่ายจริง</label><div class="compact-row"><div class="field"><label for="paidPao">เปาจ่าย</label><input id="paidPao" class="input" inputmode="decimal" oninput="syncPaidSplit('paidPao');updateFormSummary()"></div><div class="field"><label for="paidTim">ติมจ่าย</label><input id="paidTim" class="input" inputmode="decimal" oninput="syncPaidSplit('paidTim');updateFormSummary()"></div></div><small class="muted">ยอดรวมต้องเท่ากับจำนวนเงินของบิล</small></div>
+  <div class="field full box" id="splitBox" aria-labelledby="splitLabel"><label id="splitLabel">แบ่งความรับผิดชอบ</label><div class="choices" role="group" aria-labelledby="splitLabel"><button class="choice active" data-split="half" type="button" aria-pressed="true">หารครึ่ง</button><button class="choice" data-split="custom" type="button" aria-pressed="false">จำนวนเงิน</button><button class="choice" data-split="percent" type="button" aria-pressed="false">เปอร์เซ็นต์</button></div><div id="customSplit" class="compact-row" style="display:none"><div class="field"><label for="ps">ส่วนของเปา</label><input id="ps" class="input" inputmode="decimal" oninput="syncCustomSplit('ps');updateFormSummary()"></div><div class="field"><label for="ts">ส่วนของติม</label><input id="ts" class="input" inputmode="decimal" oninput="syncCustomSplit('ts');updateFormSummary()"></div></div><div id="percentSplit" class="compact-row" style="display:none"><div class="field"><label for="paoPercent">เปา (%)</label><input id="paoPercent" class="input" inputmode="decimal" value="50" oninput="syncPercentSplit('paoPercent');updateFormSummary()"></div><div class="field"><label for="timPercent">ติม (%)</label><input id="timPercent" class="input" inputmode="decimal" value="50" oninput="syncPercentSplit('timPercent');updateFormSummary()"></div></div><small id="customSplitHelp" class="muted" hidden>ใส่ยอดของคนใดคนหนึ่ง อีกช่องจะเติมยอดที่เหลือให้</small></div>
   <div class="field incOnly" style="display:none"><label id="incOwnerLabel">รายรับของใคร</label><div class="choices" role="group" aria-labelledby="incOwnerLabel"><button class="choice active" data-incowner="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-incowner="Tim" type="button" aria-pressed="false">ติม</button><button class="choice" data-incowner="Both" type="button" aria-pressed="false">ทั้งคู่</button></div></div>
+  <div class="field full box incOnly" id="incomeSplitBox" style="display:none"><label>แบ่งรายรับของทั้งคู่</label><div class="compact-row"><div class="field"><label for="incomePao">ส่วนของเปา</label><input id="incomePao" class="input" inputmode="decimal" oninput="syncIncomeSplit('incomePao');updateFormSummary()"></div><div class="field"><label for="incomeTim">ส่วนของติม</label><input id="incomeTim" class="input" inputmode="decimal" oninput="syncIncomeSplit('incomeTim');updateFormSummary()"></div></div></div>
   <div class="field full savingOnly" style="display:none"><label id="savingDirectionLabel">ทำรายการเงินเก็บ</label><div class="choices" role="group" aria-labelledby="savingDirectionLabel"><button id="savingIn" class="choice active" type="button" onclick="setSavingDirection('in')" aria-pressed="true">ออมเข้า</button><button id="savingOut" class="choice" type="button" onclick="setSavingDirection('out')" aria-pressed="false">ถอนกลับมาใช้</button></div></div>
   <div class="field savingOnly" style="display:none"><label id="savOwnerLabel">เงินเก็บของใคร</label><div class="choices" role="group" aria-labelledby="savOwnerLabel"><button class="choice active" data-savowner="Pao" type="button" aria-pressed="true">เปา</button><button class="choice" data-savowner="Tim" type="button" aria-pressed="false">ติม</button><button class="choice" data-savowner="Both" type="button" aria-pressed="false">ทั้งคู่</button></div></div>
   <div class="field savingOnly" style="display:none"><label for="pocket">กระเป๋าเงินเก็บ</label><select id="pocket" class="input" onchange="updateFormSummary()"></select><small id="pocketBalanceHint" class="muted"></small><button class="soft" type="button" onclick="addPocket(true)">＋ สร้างกระเป๋าเงินเก็บ</button></div>
+  <div class="field full box savingOnly" id="savingSplitBox" style="display:none"><label>เงินเก็บของทั้งคู่</label><div class="saving-allocation-grid"><div class="field"><label for="savingPao">ส่วนของเปา</label><input id="savingPao" class="input" inputmode="decimal" oninput="syncSavingSplit('savingPao');updateFormSummary()"><select id="pocketPao" class="input" onchange="updateFormSummary()"></select></div><div class="field"><label for="savingTim">ส่วนของติม</label><input id="savingTim" class="input" inputmode="decimal" oninput="syncSavingSplit('savingTim');updateFormSummary()"><select id="pocketTim" class="input" onchange="updateFormSummary()"></select></div></div></div>
   <div class="field full"><div class="summarybox" id="formSummary" role="status" aria-live="polite"></div></div>
  </div>
  <div class="compact-row entry-defaults"><div class="field" id="transactionDateField"><label for="dt" id="dateLabel">วันที่และเวลา</label><div class="date-control"><input id="dt" type="datetime-local" class="input"></div></div><div class="field"><label id="payLabel" for="pay">จ่ายผ่าน</label><select id="pay" class="input"></select></div></div>
@@ -115,7 +118,8 @@
 </section>
 
 <section id="history" class="view">
-<div class="head"><div><h1 tabindex="-1">รายการทั้งหมด</h1><p>ค้นหา กรอง และแก้ไขย้อนหลังได้</p></div></div>
+<div class="head"><div><h1 id="historyTitle" tabindex="-1">รายการของฉัน</h1><p id="historySubtitle">รายการที่กระทบ User หลักในเดือนที่เลือก</p></div></div>
+<div class="segment ledger-tabs" role="tablist" aria-label="มุมมองรายการ"><button id="ledgerMine" class="active" type="button" role="tab" aria-selected="true" onclick="setLedgerMode('mine')">ของฉัน</button><button id="ledgerShared" type="button" role="tab" aria-selected="false" onclick="setLedgerMode('shared')">หารกัน</button><button id="ledgerAll" type="button" role="tab" aria-selected="false" onclick="setLedgerMode('all')">ทั้งหมด</button></div>
 <div class="filters"><div class="period-control"><label for="historyPeriod">ช่วงเวลา</label><select id="historyPeriod" class="input" onchange="renderHistory()"></select></div><input id="search" class="input" placeholder="ค้นหาอาหาร, เดินทาง..." oninput="renderHistory()" aria-label="ค้นหารายการ"><select id="typeFilter" class="input" onchange="renderHistory()" aria-label="กรองตามประเภท"><option value="all">ทุกประเภท</option><option value="expense">รายจ่าย</option><option value="income">รายรับ</option><option value="saving">เงินเก็บ</option></select><select id="ownerFilter" class="input" onchange="renderHistory()" aria-label="กรองตามเจ้าของรายการ"><option value="all">ทุกคน</option><option value="PaoShare">ส่วนของเปา (รวมรายการหาร)</option><option value="Pao">เปา</option><option value="Tim">ติม</option><option value="Both">ทั้งคู่</option></select><select id="projectFilter" class="input" onchange="renderHistory()" aria-label="กรองตามโปรเจกต์"></select></div>
 <p id="historyCount" class="muted" role="status"></p><div class="card" id="historyList"></div>
 </section>
@@ -123,7 +127,7 @@
 <section id="summary" class="view">
 <div class="head"><div><h1 tabindex="-1">สรุปรายเดือน</h1><p>แยกเงินที่ใช้ เงินที่เก็บ และโปรเจกต์ออกจากกัน</p></div></div>
 <div class="period-control"><label for="summaryPeriod">เดือนที่แสดง</label><input id="summaryPeriod" class="input" type="month" data-period onchange="setPeriod(this.value)"></div><p class="muted">เหลือใช้ = รายรับ − รายจ่าย − เงินเก็บสุทธิของเดือนที่เลือก</p><div class="grid metrics"><div class="card"><div class="label">รายรับ</div><div class="value income" id="sInc"></div></div><div class="card"><div class="label">รายจ่าย</div><div class="value expense" id="sExp"></div></div><div class="card"><div class="label">เงินเก็บ</div><div class="value saving" id="sSav"></div></div><div class="card"><div class="label">เหลือใช้</div><div class="value" id="sAvail"></div></div></div>
-<div class="grid homegrid"><div class="grid"><div class="card"><div class="sect"><h3>ค่าใช้จ่ายตามหมวด</h3></div><div id="catChart"></div></div><div class="card"><div class="sect"><h3>ใช้จ่ายโปรเจกต์ในเดือนที่เลือก</h3></div><div id="projectChart"></div></div></div><div class="grid"><div class="card"><div class="sect"><h3>กระเป๋าเงินเก็บ</h3><span id="sRate" class="status"></span></div><div id="pocketSummary"></div></div><div class="card"><div class="sect"><h3>ค่าใช้จ่ายเป็นของใคร</h3></div><div id="ownerChart"></div><hr style="border:0;border-top:1px solid var(--line)"><div id="sumDebt"></div></div></div></div>
+<div class="grid homegrid"><div class="grid"><div class="card"><div class="sect"><h3>ค่าใช้จ่ายตามหมวด</h3></div><div id="catChart"></div></div><div class="card"><div class="sect"><h3>ใช้จ่ายโปรเจกต์ในเดือนที่เลือก</h3></div><div id="projectChart"></div></div></div><div class="grid"><div class="card"><div class="sect"><h3>กระเป๋าเงินเก็บของ User หลัก</h3><span id="sRate" class="status"></span></div><div id="pocketSummary"></div></div><div class="card"><div class="sect"><h3>ส่วนตัว / หารกัน</h3></div><div id="ownerChart"></div><hr style="border:0;border-top:1px solid var(--line)"><div id="sumDebt"></div></div></div></div>
 </section>
 
 <section id="projects" class="view">
@@ -135,6 +139,7 @@
 <div class="head"><div><h1 tabindex="-1">ตั้งค่า</h1><p>ข้อมูลอยู่ในเบราว์เซอร์นี้ ยังไม่แชร์ข้ามเครื่อง</p></div></div>
 <div class="grid settings">
  <div class="grid">
+   <div class="card" id="userSettings"><div class="sect"><div><h3>ผู้ใช้งาน</h3><small class="muted">ชื่อที่แสดงและมุมมองหลักของแอป</small></div></div><div class="formgrid"><div class="field"><label for="userNamePao">ชื่อคนที่ 1</label><input id="userNamePao" class="input" maxlength="40"></div><div class="field"><label for="userNameTim">ชื่อคนที่ 2</label><input id="userNameTim" class="input" maxlength="40"></div><div class="field full"><label for="primaryUserInput">User หลัก</label><select id="primaryUserInput" class="input"><option value="Pao">เปา</option><option value="Tim">ติม</option></select></div></div><div class="actions"><button class="primary" type="button" onclick="saveUserSettings()">บันทึกผู้ใช้งาน</button></div></div>
   <div class="card"><div class="sect"><h3>ช่องทางชำระเงิน</h3><button class="soft" onclick="addPayment()">＋ เพิ่ม</button></div><div id="payments"></div></div>
   <div class="card"><div class="sect"><div><h3>กระเป๋าเงินเก็บ</h3><small class="muted">ยอด = ยอดเริ่มต้น + รายการเงินเก็บ</small></div><button class="soft" onclick="addPocket()">＋ เพิ่ม</button></div><div id="pocketSettings"></div></div>
   <div class="card"><div class="sect"><h3>รายการประจำ</h3><button class="soft" onclick="openAdd(true)">＋ เพิ่ม</button></div><div id="recList"></div></div>
@@ -169,7 +174,7 @@
     <div class="actions"><button class="btn" onclick="closeAddSheet()">ยกเลิก</button></div>
   </div>
 </div>
-<div id="settlementModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settlementTitle" aria-hidden="true" onclick="if(event.target===this)closeModal('settlementModal')"><form class="modalcard" tabindex="-1" novalidate onsubmit="event.preventDefault();saveSettlement()"><h2 id="settlementTitle">บันทึกคืนเงิน</h2><p id="settlementDirection" class="modal-sub"></p><div class="field"><label for="settlementAmount">จำนวนที่คืน (บาท)</label><input id="settlementAmount" class="input" inputmode="decimal"><small id="settlementLimit" class="muted"></small><button class="soft" type="button" onclick="fillSettlementAmount()">คืนทั้งหมด</button></div><p class="muted">บันทึกหลังโอนเงินจริงแล้ว ยอดนี้จะลดเงินที่ค้างกัน</p><div id="settlementError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" type="button" onclick="closeModal('settlementModal')">ยกเลิก</button><button class="primary" type="submit">บันทึกคืนเงิน</button></div></form></div>
+<div id="settlementModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settlementTitle" aria-hidden="true" onclick="if(event.target===this)closeModal('settlementModal')"><form class="modalcard" tabindex="-1" novalidate onsubmit="event.preventDefault();saveSettlement()"><h2 id="settlementTitle">บันทึกคืนเงิน</h2><p id="settlementDirection" class="modal-sub"></p><div class="formgrid"><div class="field"><label for="settlementAmount">จำนวนที่คืน (บาท)</label><input id="settlementAmount" class="input" inputmode="decimal"><small id="settlementLimit" class="muted"></small><button class="soft" type="button" onclick="fillSettlementAmount()">คืนทั้งหมด</button></div><div class="field"><label for="settlementDate">วันที่และเวลา</label><input id="settlementDate" class="input" type="datetime-local"></div><div class="field full"><label for="settlementNote">หมายเหตุ (ไม่บังคับ)</label><input id="settlementNote" class="input" maxlength="160" placeholder="เช่น โอนคืนค่าอาหาร"></div></div><p class="muted">รายการคืนเงินลดเฉพาะยอดค้าง ไม่ถูกนับเป็นรายรับหรือรายจ่าย</p><div id="settlementError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" type="button" onclick="closeModal('settlementModal')">ยกเลิก</button><button class="primary" type="submit">บันทึกคืนเงิน</button></div></form></div>
 <div id="budgetModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="budgetModalTitle" aria-hidden="true" onclick="if(event.target===this)closeBudget()"><div class="modalcard" tabindex="-1"><h3 id="budgetModalTitle">ตั้งงบรายจ่ายรายเดือน</h3><div class="field"><label for="overallBudget">งบรวมต่อเดือน</label><input id="overallBudget" class="input" inputmode="decimal"></div><div id="catBudFields" style="margin-top:12px"></div><div class="actions"><button class="btn" onclick="closeBudget()">ยกเลิก</button><button class="primary" onclick="saveBudget()">บันทึกงบ</button></div></div></div>
 <div id="projectModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle" aria-hidden="true" onclick="if(event.target===this)closeProjectModal()">
   <div class="modalcard" tabindex="-1">
@@ -193,7 +198,7 @@
         </select>
       </div>
       <div class="field">
-        <label for="projectBudgetInput">งบโปรเจกต์</label>
+        <label for="projectBudgetInput">งบรวมโปรเจกต์</label>
         <input id="projectBudgetInput" class="input" inputmode="decimal" placeholder="50000">
       </div>
       <div class="field">
@@ -204,6 +209,14 @@
           <option value="Completed">เสร็จแล้ว</option>
           <option value="Archived">เก็บเข้าคลัง</option>
         </select>
+      </div>
+      <div class="field">
+        <label for="projectBudgetPaoInput">งบส่วนของเปา</label>
+        <input id="projectBudgetPaoInput" class="input" inputmode="decimal" placeholder="ไม่ตั้ง">
+      </div>
+      <div class="field">
+        <label for="projectBudgetTimInput">งบส่วนของติม</label>
+        <input id="projectBudgetTimInput" class="input" inputmode="decimal" placeholder="ไม่ตั้ง">
       </div>
     </div>
 
@@ -249,6 +262,10 @@
         <input id="pocketOpeningInput" class="input" inputmode="decimal" placeholder="0">
       </div>
       <div class="field full">
+        <label for="pocketOwnerInput">เจ้าของกระเป๋า</label>
+        <select id="pocketOwnerInput" class="input"><option value="Pao">เปา</option><option value="Tim">ติม</option></select>
+      </div>
+      <div class="field full">
         <label for="pocketProjectInput">เชื่อมกับโปรเจกต์</label>
         <select id="pocketProjectInput" class="input"></select>
       </div>
@@ -269,5 +286,6 @@
 <div class="toast" id="toast" hidden><span id="toastText" role="status" aria-live="polite"></span><button id="toastUndo" class="toast-undo" onclick="undoLastAction()" hidden>เลิกทำ</button></div>
 <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><h2 id="restoreTitle">ตรวจสอบก่อนกู้คืน</h2><p id="restoreFileName" class="muted"></p><div id="restoreComparison"></div><p class="restore-warning">ข้อมูลในไฟล์จะแทนที่รายการและการตั้งค่าปัจจุบันทั้งหมด แอปจะเก็บสำเนาก่อนแทนที่ไว้ให้ย้อนกลับได้</p><div id="restoreError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" onclick="cancelRestore()">ยกเลิก</button><button class="primary" id="confirmRestoreButton" onclick="confirmRestore()">แทนที่ด้วยข้อมูลนี้</button></div></div></div>
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
-<script src="./app.js?v=20261004-floating-add" defer></script>
+<script src="./finance-core.js?v=20261007-personal-ledger" defer></script>
+<script src="./app.js?v=20261007-personal-ledger" defer></script>
 </body></html>
