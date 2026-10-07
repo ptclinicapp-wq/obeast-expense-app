@@ -1551,8 +1551,9 @@ function dailyAllowance(value = totals(), now = new Date()) {
   const budget = budgetBook().overall;
   const availableRemaining = value.available;
   const budgetRemaining = budget > 0 ? budget-value.expense : Infinity;
-  const remaining = budget > 0 ? Math.min(availableRemaining,budgetRemaining) : availableRemaining;
-  return {current,past,days,remaining,amount:past ? 0 : FinanceCore.fromCents(Math.floor(Math.max(0,remaining)*100/days)),source:budget > 0 ? 'ค่าที่ต่ำกว่าระหว่างเงินเหลือกับงบคงเหลือ' : 'เงินคงเหลือหลังหักรายจ่ายและเงินเก็บ'};
+  const rawRemaining = budget > 0 ? Math.min(availableRemaining,budgetRemaining) : availableRemaining;
+  const remaining = Math.max(0,rawRemaining);
+  return {current,past,days,budget,availableRemaining,budgetRemaining,remaining,over:rawRemaining < 0,amount:past ? 0 : FinanceCore.fromCents(Math.floor(remaining*100/days)),source:budget > 0 ? 'ค่าที่ต่ำกว่าระหว่างเงินเหลือกับงบคงเหลือ' : 'เงินคงเหลือหลังหักรายจ่ายและเงินเก็บ'};
 }
 
 function renderSelects() {
@@ -2036,7 +2037,11 @@ function renderHomeProjects() {
 
 function renderHome() {
   const value = totals(), hideIncome = state.settings.hideIncomeHome !== false, daily = dailyAllowance(value), primary = primaryUser();
-  $('dailyAvailable').textContent = daily.past ? '—' : money(daily.amount); $('dailyHint').textContent = daily.past ? 'เดือนนี้สิ้นสุดแล้ว' : `${daily.source} ${money(daily.remaining)} ÷ ${daily.days} วันที่เหลือ${daily.remaining < 0 ? ' · ใช้เกินกรอบแล้ว' : ''}`;
+  const savingMath = value.saving >= 0 ? `− เงินเก็บสุทธิ ${money(value.saving)}` : `＋ ถอนจากเงินเก็บ ${money(Math.abs(value.saving))}`;
+  const actualRemaining = daily.availableRemaining >= 0 ? money(daily.availableRemaining) : `฿0.00 (ใช้เกิน ${money(Math.abs(daily.availableRemaining))})`;
+  const budgetMath = daily.budget > 0 ? ` · งบคงเหลือ ${money(Math.max(0,daily.budgetRemaining))} · ใช้ค่าที่ต่ำกว่า` : '';
+  const dailyBreakdown = hideIncome ? `เงินเหลือจริงหลังหักรายจ่ายและเงินเก็บ ${actualRemaining}` : `รายรับ ${money(value.income)} − รายจ่าย ${money(value.expense)} ${savingMath} = เงินเหลือจริง ${actualRemaining}`;
+  $('dailyAvailable').textContent = daily.past ? '—' : money(daily.amount); $('dailyHint').textContent = daily.past ? 'เดือนนี้สิ้นสุดแล้ว' : `${dailyBreakdown}${budgetMath} · ${money(daily.remaining)} ÷ ${daily.days} วันที่เหลือ${daily.over ? ' · ใช้เกินกรอบแล้ว' : ''}`;
   $('monthLabel').textContent = formatMonth(selectedMonth); $('homeMetrics').classList.toggle('privacy-on',hideIncome); $('availableCard').hidden = hideIncome; $('incomeCard').hidden = hideIncome;
   $('available').textContent = money(value.available); $('income').textContent = money(value.income); $('expense').textContent = money(value.expense); $('saving').textContent = money(value.saving); $('rate').textContent = hideIncome ? '' : `อัตราเงินเก็บ ${value.rate.toFixed(1)}%`;
   const recent = currentMonthTx().filter(tx => tx.type !== 'settlement' && Math.abs(FinanceCore.economicShare(tx,primary)) > .001 && (!hideIncome || tx.type !== 'income')).sort((a,b) => new Date(b.datetime)-new Date(a.datetime)).slice(0,6);

@@ -34,6 +34,7 @@ test('personal totals reconcile across Home, ledger and Summary', async ({page})
   expect(result).toEqual({totals:{income:2000,expense:500,saving:100,available:1400,rate:5},debt:300});
   await expect(page.locator('#expense')).toContainText('500.00');
   await expect(page.locator('#debtAmt')).toContainText('300.00');
+  await expect(page.locator('#dailyHint')).toContainText('รายรับ ฿2,000.00 − รายจ่าย ฿500.00 − เงินเก็บสุทธิ ฿100.00');
 
   await page.evaluate(() => openHistory('all','mine'));
   await expect(page.locator('#historyList .tx')).toHaveCount(3);
