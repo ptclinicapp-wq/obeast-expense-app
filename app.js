@@ -233,20 +233,24 @@ function openAdd(typeOrRecurring = 'expense', withRecurring = false) {
   openEntry(recurring && type === 'expense' ? 'monthly' : type);
   if (recurring && type !== 'expense') { toggleRecurring(true); $('optionalDetails').open = true; }
 }
-function entryKindFor(value = form) { return value.type === 'expense' ? value.installment ? 'installment' : value.monthly || value.recurring ? 'monthly' : 'expense' : value.type; }
-function entryLabel(kind) { return ({expense:'รายจ่ายทั่วไป',installment:'รายจ่ายผ่อน',monthly:'รายจ่ายประจำเดือน',income:'รายรับ',saving:'เงินเก็บ'})[kind] || 'รายการ'; }
+function entryKindFor(value = form) {
+  if (value.type === 'expense') return value.installment ? 'installment' : value.monthly || value.recurring ? 'monthly' : 'expense';
+  if (value.type === 'income' && value.monthly) return 'monthly-income';
+  return value.type;
+}
+function entryLabel(kind) { return ({expense:'รายจ่ายทั่วไป',installment:'รายจ่ายผ่อน',monthly:'รายจ่ายประจำเดือน',income:'รายรับ','monthly-income':'รายรับประจำเดือน',saving:'เงินเก็บ'})[kind] || 'รายการ'; }
 function currentDraftKey() { return form.editId || 'new_' + entryKindFor(); }
 function openEntry(kind = 'expense', options = {}) {
-  if (!['expense','installment','monthly','income','saving'].includes(kind)) kind = 'expense';
+  if (!['expense','installment','monthly','income','monthly-income','saving'].includes(kind)) kind = 'expense';
   const previous = currentView() === 'add' ? route.from || 'home' : currentView();
   if (!options.fresh) stashDraft();
   resetForm();
   const draftKey = 'new_' + kind;
   if (draftCache.new && entryKindFor(draftCache.new.form) === kind && !draftCache[draftKey]) { draftCache[draftKey] = draftCache.new; delete draftCache.new; }
   if (options.fresh || !restoreDraft(draftKey)) {
-    form.monthly = kind === 'monthly';
+    setType(['installment','monthly'].includes(kind) ? 'expense' : kind === 'monthly-income' ? 'income' : kind);
+    form.monthly = kind === 'monthly' || kind === 'monthly-income';
     form.installment = kind === 'installment';
-    setType(['installment','monthly'].includes(kind) ? 'expense' : kind);
     syncInstallmentForm(); updateFormSummary();
     formBaseline = draftSignature();
   }
@@ -343,7 +347,7 @@ function setType(type) {
   if (!['expense','income','saving'].includes(type)) return;
   const changed = form.type !== type;
   form.type = type;
-  if (type !== 'expense') { form.installment = false; form.monthly = false; }
+  if (type !== 'expense') { form.installment = false; if (type !== 'income') form.monthly = false; }
   if (changed) { form.catExpanded = false; $('cat').value = ''; $('categorySearch').value = ''; }
   for (const [id, value] of [['expTab','expense'],['incTab','income'],['savTab','saving']]) $(id).classList.toggle('active', value === type);
   document.querySelectorAll('.expOnly,.incOnly,.savingOnly,.nonSaving').forEach(el => {
@@ -373,10 +377,10 @@ function syncCustomSplit(source) {
 }
 function syncInstallmentForm() {
   const active = form.type === 'expense' && form.installment && !form.editId;
-  const monthly = form.type === 'expense' && form.monthly && !form.editId;
+  const monthly = ['expense','income'].includes(form.type) && form.monthly && !form.editId;
   const scheduled = active || monthly;
   $('entryKind').value = entryKindFor();
-  for (const option of $('entryKind').options) option.hidden = !!form.editId && ['monthly','installment'].includes(option.value);
+  for (const option of $('entryKind').options) option.hidden = !!form.editId && ['monthly','monthly-income','installment'].includes(option.value);
   $('installmentField').hidden = !active;
   $('planNameField').hidden = !scheduled;
   $('installmentBasisField').hidden = !active;
@@ -388,13 +392,17 @@ function syncInstallmentForm() {
   $('installmentSwitch').setAttribute('aria-pressed',String(active));
   $('installmentBox').classList.toggle('show',active);
   $('installmentBox').setAttribute('aria-hidden',String(!active));
-  $('amountLabel').textContent = active ? $('installmentBasis').value === 'total' ? 'ยอดรวมที่ต้องผ่อน (บาท)' : 'ยอดผ่อนต่อเดือน (บาท)' : monthly ? 'จ่ายเดือนละ (บาท)' : 'จำนวนเงิน (บาท)';
+  $('amountLabel').textContent = active ? $('installmentBasis').value === 'total' ? 'ยอดรวมที่ต้องผ่อน (บาท)' : 'ยอดผ่อนต่อเดือน (บาท)' : monthly ? form.type === 'income' ? 'รับเดือนละ (บาท)' : 'จ่ายเดือนละ (บาท)' : 'จำนวนเงิน (บาท)';
   $('dateLabel').textContent = active ? 'วันและเวลางวดแรก' : 'วันที่และเวลา';
   if (form.type === 'expense' && !form.editId) {
     $('formTitle').textContent = active ? 'เพิ่มรายจ่ายผ่อน' : monthly ? 'เพิ่มรายจ่ายประจำเดือน' : 'เพิ่มรายจ่ายทั่วไป';
     $('formSubtitle').textContent = active ? 'เลือกเดือนเริ่ม แล้วให้แอปแบ่งยอดให้' : monthly ? 'ตั้งครั้งเดียว บันทึกให้อัตโนมัติทุกเดือน' : 'ระบุยอดและคนที่แบ่งค่าใช้จ่าย';
+  } else if (form.type === 'income' && !form.editId) {
+    $('formTitle').textContent = monthly ? 'เพิ่มรายรับประจำเดือน' : 'เพิ่มรายรับ';
+    $('formSubtitle').textContent = monthly ? 'ตั้งครั้งเดียว บันทึกรายรับให้อัตโนมัติทุกเดือน' : 'บันทึกเงินที่ได้รับ';
   }
-  $('recurringField').hidden = form.type === 'expense' || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
+  $('planName').placeholder = monthly && form.type === 'income' ? 'เช่น เงินเดือน / ค่าเช่า' : 'เช่น ผ่อนโทรศัพท์ / ค่าเช่าห้อง';
+  $('recurringField').hidden = scheduled || form.type === 'expense' || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
   $('recBox').classList.toggle('show',form.recurring && !scheduled);
   const shareLabel = active && $('installmentBasis').value === 'total' ? ' (ยอดรวม)' : scheduled ? ' (ต่อเดือน)' : '';
   document.querySelector('label[for="ps"]').textContent = 'ส่วนของเปา' + shareLabel;
@@ -639,7 +647,7 @@ function advance(r){const d=new Date(r.nextRun);if(r.frequency==='daily')d.setDa
 function generateDueTransactions(rec, now = Date.now()) {
   const installment = rec.kind === 'installment';
   let count = 0;
-  while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : rec.kind === 'monthly-expense' ? 1800 : 24)) {
+  while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : ['monthly-expense','monthly-income'].includes(rec.kind) ? 1800 : 24)) {
     if (installment && rec.completedInstallments >= rec.totalInstallments) { rec.enabled = false; break; }
     const number = installment ? rec.completedInstallments + 1 : null;
     if (!installment || !state.transactions.some(tx => tx.recurringId === rec.id && tx.installmentNumber === number)) {
@@ -1378,6 +1386,10 @@ function cleanRecurring(value = {}) {
   rec.nextRun = Number.isFinite(next.getTime()) ? next.toISOString() : new Date().toISOString();
   rec.dayOfMonth = Math.min(31,Math.max(1,Math.round(num(rec.dayOfMonth,fallbackDay))));
   rec.template = cleanTx(rec.template || {});
+  if (['monthly-expense','monthly-income'].includes(rec.kind)) {
+    rec.frequency = 'monthly';
+    rec.kind = rec.template.type === 'income' ? 'monthly-income' : 'monthly-expense';
+  }
   if (rec.kind === 'installment') {
     rec.frequency = 'monthly';
     rec.totalInstallments = Math.min(600,Math.max(1,Math.round(num(rec.totalInstallments,1))));
@@ -1709,8 +1721,9 @@ function updateFormSummary() {
     $('saveTxButton').textContent = 'บันทึกแผนผ่อน' + (quote ? ` ${quote.count} เดือน` : '');
   } else if (form.monthly && !form.editId) {
     const start = scheduleDate('monthly');
-    $('monthlyPreview').textContent = start ? `เดือนละ ${money(amount)} · ทุกวันที่ ${$('monthlyDay').value} · เริ่ม ${formatMonth(monthKey(start))}` : 'เลือกเดือนเริ่มต้น';
-    $('saveTxButton').textContent = 'บันทึกรายจ่ายประจำเดือน';
+    const action = form.type === 'income' ? 'รับ' : 'จ่าย';
+    $('monthlyPreview').textContent = start ? `${action}เดือนละ ${money(amount)} · ทุกวันที่ ${$('monthlyDay').value} · เริ่ม ${formatMonth(monthKey(start))}` : 'เลือกเดือนเริ่มต้น';
+    $('saveTxButton').textContent = form.type === 'income' ? 'บันทึกรายรับประจำเดือน' : 'บันทึกรายจ่ายประจำเดือน';
   }
   const pocket = pocketById($('pocket').value);
   $('pocketBalanceHint').textContent = pocket ? `ยอดคงเหลือ ${money(pocketBalance(pocket.id))} · เจ้าของ ${who(pocket.owner)}` : '';
@@ -1763,10 +1776,10 @@ function saveTx() {
   clearFieldErrors();
   const amount = parseMoney($('amount').value);
   if (!Number.isFinite(amount) || amount <= 0) return fieldError('amount','ใส่จำนวนเงินมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
-  const scheduleKind = !form.editId && form.type === 'expense' ? form.installment ? 'installment' : form.monthly ? 'monthly' : null : null;
+  const scheduleKind = !form.editId ? form.type === 'expense' && form.installment ? 'installment' : ['expense','income'].includes(form.type) && form.monthly ? 'monthly' : null : null;
   const date = scheduleKind ? scheduleDate(scheduleKind) : new Date($('dt').value);
   if (!date || !Number.isFinite(date.getTime())) return fieldError(scheduleKind ? scheduleKind+'Start' : 'dt','เลือกเดือนหรือวันที่ให้ครบ');
-  if (scheduleKind && !$('planName').value.trim()) return fieldError('planName','ตั้งชื่อรายการ เช่น ผ่อนโทรศัพท์ หรือค่าเช่าห้อง');
+  if (scheduleKind && !$('planName').value.trim()) return fieldError('planName',form.type === 'income' ? 'ตั้งชื่อรายรับ เช่น เงินเดือน หรือค่าเช่า' : 'ตั้งชื่อรายการ เช่น ผ่อนโทรศัพท์ หรือค่าเช่าห้อง');
   if (form.type !== 'saving' && !$('cat').value) return fieldError('catChoices','เลือกหมวดหมู่ก่อนบันทึก');
   const existing = state.transactions.find(tx => tx.id === form.editId);
   if (form.editId && !existing) return fieldError('formError','ไม่พบรายการเดิม รายการอาจถูกลบไปแล้ว');
@@ -1807,7 +1820,7 @@ function saveTx() {
     recurring.installmentTotalSplit = {...recurring.installmentTotalShares};
     Object.assign(recurring.template,installmentPayment(recurring,1));
   } else if (scheduleKind === 'monthly') {
-    recurring = {id:id(),kind:'monthly-expense',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    recurring = {id:id(),kind:form.type === 'income' ? 'monthly-income' : 'monthly-expense',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
   } else if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
     const next = new Date($('nextRun').value);
     if (!Number.isFinite(next.getTime()) || next.getTime() <= Date.now()) return fieldError('nextRun','เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
@@ -2046,7 +2059,7 @@ function renderHome() {
   $('quick').innerHTML = unique.map(tx => `<div class="quick"><button class="quick-main" onclick="quickAddNow('${tx.id}')"><b>${icon(tx)} ${esc(tx.note || tx.category || 'เงินเก็บ')}</b><small>${money(Math.abs(FinanceCore.economicShare(tx,primary)))} · ส่วนของ${who(primary)}</small></button><button class="quick-edit" onclick="quickAdd('${tx.id}')">แก้ก่อนบันทึก</button></div>`).join('') || '<div class="empty">รายการที่ใช้ซ้ำของ User หลักจะมาอยู่ตรงนี้</div>';
   renderPockets();
   const recurring = state.recurring.filter(rec => rec.kind !== 'installment' && rec.enabled && Math.abs(FinanceCore.economicShare(rec.template,primary)) > .001 && (!hideIncome || rec.template.type !== 'income')).sort((a,b) => new Date(a.nextRun)-new Date(b.nextRun)).slice(0,4);
-  $('homeRecurring').innerHTML = recurring.map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'เงินเก็บ')}</b><small class="muted" style="display:block">ครั้งถัดไป ${new Date(rec.nextRun).toLocaleDateString('th-TH')}</small></div><b>${money(Math.abs(FinanceCore.economicShare(rec.template,primary)))}</b></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำของ User หลัก</div>';
+  $('homeRecurring').innerHTML = recurring.map(rec => { const typeClass = rec.template.type === 'income' ? 'income' : rec.template.type === 'expense' ? 'expense' : 'saving'; return `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'เงินเก็บ')}</b><small class="muted" style="display:block">${esc(typeLabel(rec.template.type))}ประจำ · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleDateString('th-TH')}</small></div><b class="${typeClass}">${money(Math.abs(FinanceCore.economicShare(rec.template,primary)))}</b></div>`; }).join('') || '<div class="empty">ยังไม่มีรายการประจำของ User หลัก</div>';
   renderBudget(); renderDebt(); renderHomeProjects();
 }
 
@@ -2157,7 +2170,7 @@ function renderSettings() {
   $('userNamePao').value = userName('Pao'); $('userNameTim').value = userName('Tim'); $('primaryUserInput').value = primaryUser();
   $('payments').innerHTML = state.payments.map((payment,index) => `<div class="setrow"><div><b>${esc(payment)}</b><small class="muted" style="display:block">${payment === state.settings.defaultPayment ? 'ค่าเริ่มต้น' : ''}</small></div><div>${payment !== state.settings.defaultPayment ? `<button class="soft" onclick="setDefaultByIndex(${index})">ตั้งเป็นค่าเริ่มต้น</button>` : ''} ${state.payments.length > 1 && payment !== state.settings.defaultPayment ? `<button class="danger" onclick="removePayByIndex(${index})">ลบ</button>` : ''}</div></div>`).join('');
   $('pocketSettings').innerHTML = state.pockets.map(pocket => `<div class="setrow"><div><b>${esc(pocket.icon || '💰')} ${esc(pocket.name)} <span class="badge">${esc(who(pocket.owner))}</span>${pocket.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</b><small class="muted" style="display:block">${money(pocketBalance(pocket.id))} / ${money(pocket.goal)}</small></div><button class="soft" onclick="editPocket(${jsArg(pocket.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>';
-  $('recList').innerHTML = state.recurring.filter(rec => rec.kind !== 'installment').map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'รายการประจำ')} · ${money(Math.abs(FinanceCore.economicShare(rec.template,primaryUser())))}</b><small class="muted" style="display:block">ส่วนของ${who(primaryUser())} · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${rec.enabled ? 'on' : ''}" onclick="toggleRec(${jsArg(rec.id)})"></button> <button class="danger" onclick="delRec(${jsArg(rec.id)})">ลบ</button></div></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำ</div>';
+  $('recList').innerHTML = state.recurring.filter(rec => rec.kind !== 'installment').map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'รายการประจำ')} · ${money(Math.abs(FinanceCore.economicShare(rec.template,primaryUser())))}</b><small class="muted" style="display:block">${esc(typeLabel(rec.template.type))}ประจำ · ส่วนของ${who(primaryUser())} · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${rec.enabled ? 'on' : ''}" onclick="toggleRec(${jsArg(rec.id)})"></button> <button class="danger" onclick="delRec(${jsArg(rec.id)})">ลบ</button></div></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำ</div>';
   const book = budgetBook(); $('budSettings').innerHTML = `<div class="setrow"><div><b>งบรวมของ${esc(who(primaryUser()))}</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(book.overall)}</b></div>` + Object.entries(book.categories).map(([category,limit]) => `<div class="setrow"><div>${esc(category)}</div><b>${money(limit)}</b></div>`).join('');
   $('projectSettings').innerHTML = state.projects.map(project => `<div class="setrow"><div><b>${esc(project.icon || '▣')} ${esc(project.name)}</b><small class="muted" style="display:block">งบรวม ${money(project.budgetTotal || project.budget)} · ส่วนของ${who(primaryUser())} ${project.budgetShares ? money(project.budgetShares[primaryUser()]) : 'ยังไม่ตั้ง'}</small></div><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีโปรเจกต์</div>';
   $('themeSwitch').classList.toggle('on',state.settings.theme === 'dark'); $('homeIncomeSwitch').classList.toggle('on',state.settings.hideIncomeHome !== false); renderUserLabels();

@@ -133,3 +133,30 @@ test('shared form previews multi-payer percentage split and settlement', async (
   expect(deleteMessage).toMatch(/฿300\.00.*฿100\.00/);
   expect(await page.evaluate(() => debtFor())).toBe(300);
 });
+
+test('monthly income creates a reusable schedule and records the due month', async ({page}) => {
+  await cleanStart(page);
+  await page.evaluate(() => openEntry('monthly-income'));
+  await expect(page.locator('#formTitle')).toHaveText('เพิ่มรายรับประจำเดือน');
+  await expect(page.locator('#monthlyBox')).toBeVisible();
+  await expect(page.locator('#amountLabel')).toHaveText('รับเดือนละ (บาท)');
+
+  await page.locator('#planName').fill('เงินเดือนประจำ');
+  await page.locator('#amount').fill('30000');
+  await page.locator('[data-incowner="Both"]').click();
+  await page.locator('#incomePao').fill('18000');
+  await page.locator('#monthlyStart').fill(await page.evaluate(() => selectedMonth));
+  await page.locator('#monthlyDay').selectOption('1');
+  await page.locator('#saveTxButton').click();
+
+  const result = await page.evaluate(() => ({
+    schedule:state.recurring.find(rec => rec.kind === 'monthly-income'),
+    transaction:state.transactions.find(tx => tx.recurringGenerated && tx.type === 'income'),
+    paoTotals:totals(state.transactions,'Pao'),
+    timTotals:totals(state.transactions,'Tim')
+  }));
+  expect(result.schedule).toMatchObject({kind:'monthly-income',frequency:'monthly',dayOfMonth:1,template:{type:'income',amount:30000,shares:{Pao:18000,Tim:12000}}});
+  expect(result.transaction).toMatchObject({type:'income',amount:30000,shares:{Pao:18000,Tim:12000},recurringGenerated:true});
+  expect(result.paoTotals.income).toBe(18000);
+  expect(result.timTotals.income).toBe(12000);
+});

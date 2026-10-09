@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20261007-personal-ledger">
+<link rel="stylesheet" href="./styles.css?v=20261009-recurring-income">
 </head>
 <body>
 <div class="app">
@@ -38,6 +38,7 @@
  <div class="entry-shortcuts">
   <button class="entry-shortcut" onclick="openEntry('saving')"><span aria-hidden="true">◇</span> เก็บเงิน</button>
   <button class="entry-shortcut" onclick="openEntry('income')"><span aria-hidden="true">＋</span> รับเงิน</button>
+  <button class="entry-shortcut" onclick="openEntry('monthly-income')"><span aria-hidden="true">↻</span> รายรับประจำ</button>
   <button class="entry-shortcut" onclick="settleDebt()"><span aria-hidden="true">⇄</span> คืนเงินกัน</button>
  </div>
 </article>
@@ -82,7 +83,7 @@
 <section id="add" class="view">
 <div class="head form-heading"><div><h1 id="formTitle" tabindex="-1">เพิ่มรายจ่าย</h1><p id="formSubtitle">ระบุยอดและคนที่แบ่งค่าใช้จ่าย</p></div><span id="draftStatus" class="muted" role="status"></span></div>
 <form id="transactionForm" class="card form" novalidate onsubmit="event.preventDefault();saveTx()">
- <div class="field entry-kind-field"><label for="entryKind">ประเภทรายการ</label><select id="entryKind" class="input" onchange="changeEntryKind(this.value)"><option value="expense">รายจ่ายทั่วไป</option><option value="installment">รายจ่ายผ่อน</option><option value="monthly">รายจ่ายประจำเดือน</option><option value="saving">เงินเก็บ</option><option value="income">รายรับ</option></select></div>
+ <div class="field entry-kind-field"><label for="entryKind">ประเภทรายการ</label><select id="entryKind" class="input" onchange="changeEntryKind(this.value)"><option value="expense">รายจ่ายทั่วไป</option><option value="installment">รายจ่ายผ่อน</option><option value="monthly">รายจ่ายประจำเดือน</option><option value="income">รายรับ</option><option value="monthly-income">รายรับประจำเดือน</option><option value="saving">เงินเก็บ</option></select></div>
  <div class="segment legacy-form-control" role="group" aria-label="เลือกประเภทรายการ"><button id="expTab" class="active" onclick="setType('expense')" type="button" aria-pressed="true">รายจ่าย</button><button id="incTab" onclick="setType('income')" type="button" aria-pressed="false">รายรับ</button><button id="savTab" onclick="setType('saving')" type="button" aria-pressed="false">เงินเก็บ</button></div>
  <div class="field plan-name-field" id="planNameField" hidden><label for="planName">ชื่อรายการ</label><input id="planName" class="input" placeholder="เช่น ผ่อนโทรศัพท์ / ค่าเช่าห้อง" maxlength="160"></div>
  <div class="field" id="installmentBasisField" hidden><label for="installmentBasis">จำนวนเงินที่กรอก</label><select id="installmentBasis" class="input" onchange="syncInstallmentForm();syncCustomSplit('amount');updateFormSummary()"><option value="total">ยอดรวมที่ต้องผ่อน</option><option value="monthly">ยอดที่จ่ายต่อเดือน</option></select></div>
@@ -166,8 +167,9 @@
     <div class="sheet-actions">
       <button class="sheet-option" onclick="startAdd('expense')"><span>−</span><b>รายจ่ายทั่วไป</b><small>จ่ายครั้งเดียว / หารกัน</small></button>
       <button class="sheet-option" onclick="startAdd('installment')"><span>▤</span><b>รายจ่ายผ่อน</b><small>กำหนดจำนวนเดือน</small></button>
-      <button class="sheet-option" onclick="startAdd('monthly')"><span>↻</span><b>ประจำเดือน</b><small>บันทึกซ้ำทุกเดือน</small></button>
+      <button class="sheet-option" onclick="startAdd('monthly')"><span>↻</span><b>รายจ่ายประจำ</b><small>บันทึกซ้ำทุกเดือน</small></button>
       <button class="sheet-option" onclick="startAdd('income')"><span>＋</span><b>รายรับ</b><small>เงินเข้า</small></button>
+      <button class="sheet-option" onclick="startAdd('monthly-income')"><span>↻</span><b>รายรับประจำ</b><small>เงินเดือนหรือรายรับทุกเดือน</small></button>
       <button class="sheet-option" onclick="startAdd('saving')"><span>→</span><b>เงินเก็บ</b><small>เข้ากระเป๋าออม</small></button>
       <button class="sheet-option" onclick="closeAddSheet();settleDebt()"><span>⇄</span><b>คืนเงินกัน</b><small>คืนบางส่วนหรือทั้งหมด</small></button>
     </div>
@@ -286,6 +288,6 @@
 <div class="toast" id="toast" hidden><span id="toastText" role="status" aria-live="polite"></span><button id="toastUndo" class="toast-undo" onclick="undoLastAction()" hidden>เลิกทำ</button></div>
 <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><h2 id="restoreTitle">ตรวจสอบก่อนกู้คืน</h2><p id="restoreFileName" class="muted"></p><div id="restoreComparison"></div><p class="restore-warning">ข้อมูลในไฟล์จะแทนที่รายการและการตั้งค่าปัจจุบันทั้งหมด แอปจะเก็บสำเนาก่อนแทนที่ไว้ให้ย้อนกลับได้</p><div id="restoreError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" onclick="cancelRestore()">ยกเลิก</button><button class="primary" id="confirmRestoreButton" onclick="confirmRestore()">แทนที่ด้วยข้อมูลนี้</button></div></div></div>
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
-<script src="./finance-core.js?v=20261007-net-cash-daily" defer></script>
-<script src="./app.js?v=20261007-net-cash-daily" defer></script>
+<script src="./finance-core.js?v=20261009-recurring-income" defer></script>
+<script src="./app.js?v=20261009-recurring-income" defer></script>
 </body></html>

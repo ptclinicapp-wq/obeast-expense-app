@@ -104,7 +104,7 @@ button:focus-visible,.input:focus-visible,.moneyinput:focus-visible,.choice:focu
 .entry-general{background:var(--sage2);border-color:var(--sage)}
 .entry-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--card);color:var(--sage);font-size:25px;font-weight:600}
 .entry-arrow{position:absolute;right:16px;top:16px;color:var(--muted);font-size:22px}
-.entry-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.entry-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
 .entry-shortcut{display:flex;justify-content:center;align-items:center;gap:8px;min-height:46px;padding:8px;border:0;border-radius:11px;color:var(--text);background:transparent}
 .entry-shortcut:hover{background:var(--soft)}
 .entry-shortcut>span{color:var(--sage);font-size:22px}
@@ -139,7 +139,7 @@ body[data-view=add] .fab{display:none}
  .entry-widget b{font-size:16px;margin-bottom:2px}
  .entry-widget small{font-size:12px}
  .entry-arrow{top:50%;right:12px;transform:translateY(-50%);font-size:18px}
- .entry-shortcuts{gap:3px;margin-top:10px;padding-top:10px}
+ .entry-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;margin-top:10px;padding-top:10px}
  .entry-shortcut{font-size:13px;padding:7px 2px;gap:5px}
  .entry-shortcut>span{font-size:18px}
  #installmentBox>.compact-row,#monthlyBox>.compact-row{grid-template-columns:minmax(0,1fr)}
