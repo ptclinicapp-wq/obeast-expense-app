@@ -6,6 +6,7 @@ const root = path.resolve(__dirname,'..');
 const routes = new Map([
   ['/',['index.html','text/html; charset=utf-8']],
   ['/index.html',['index.html','text/html; charset=utf-8']],
+  ['/vendor/exceljs.min.js',['vendor/exceljs.min.js','text/javascript; charset=utf-8']],
   ['/finance-core.js',['finance-core.js','text/javascript; charset=utf-8']],
   ['/app.js',['app.js','text/javascript; charset=utf-8']],
   ['/styles.css',['styles.css','text/css; charset=utf-8']]

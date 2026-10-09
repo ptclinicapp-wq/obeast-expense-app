@@ -1,4 +1,5 @@
 const {test,expect} = require('@playwright/test');
+const fs = require('node:fs/promises');
 
 async function cleanStart(page) {
   await page.goto('/');
@@ -65,6 +66,24 @@ test('personal totals reconcile across Home, ledger and Summary', async ({page})
   await page.setViewportSize({width:1440,height:1000});
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('Excel export contains a readable summary and complete raw data', async ({page}) => {
+  await cleanStart(page);
+  await seedAccountingExample(page);
+  await page.evaluate(() => show('settings'));
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button',{name:'ส่งออก Excel',exact:true}).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^pao-tim-money-\d{4}-\d{2}\.xlsx$/);
+  const bytes = await fs.readFile(await download.path());
+  expect(bytes.length).toBeGreaterThan(5_000);
+  expect(bytes.subarray(0,2).toString('ascii')).toBe('PK');
+  expect(await page.evaluate(() => ({summary:totals(),raw:excelRawData()}))).toMatchObject({
+    summary:{income:2000,expense:500,saving:100,available:1400},
+    raw:{headers:expect.arrayContaining(['วันที่และเวลา','ยอดเต็ม (บาท)','ที่มา','Transaction ID'])}
+  });
 });
 
 test('v5 storage migrates safely to v6', async ({page}) => {

@@ -897,8 +897,7 @@ function saveBudget() {
 function toggleTheme(){state.settings.theme=state.settings.theme==='dark'?'light':'dark';save();applyTheme();renderSettings();syncA11yState()}
 function toggleHomeIncomePrivacy(){state.settings.hideIncomeHome=state.settings.hideIncomeHome===false;save();renderAll();toastMsg(state.settings.hideIncomeHome?'ซ่อนรายรับหน้าแรกแล้ว':'แสดงรายรับหน้าแรกแล้ว')}
 function applyTheme(){document.documentElement.setAttribute('data-theme',state.settings.theme)}
-function download(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-function exportCSV(){const rows=[['datetime','type','amount','category','payment','payer','owner','pao_share','tim_share','project','pocket','settlement_from','settlement_to','note'],...state.transactions.map(t=>[t.datetime,t.type,t.amount,t.category||'',t.payment||'',t.payer||'',t.owner||'',t.split?.Pao||'',t.split?.Tim||'',projectById(t.projectId)?.name||'',pocketById(t.pocketId)?.name||'',t.from||'',t.to||'',t.note||''])];download('\ufeff'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'),'pao-tim-money-v5.csv','text/csv;charset=utf-8')}
+function download(content,name,type){const a=document.createElement('a'),blob=content instanceof Blob?content:new Blob([content],{type});a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 function backup() {
   const when = new Date().toISOString();
   let data = state;
@@ -2292,9 +2291,118 @@ function transactionExportRows() {
   return [['datetime','type','gross_amount','category','payment','pao_share','tim_share','pao_paid','tim_paid','saving_direction','saving_allocations','project','settlement_from','settlement_to','needs_review','note'],...state.transactions.map(tx => { const shares = tx.type === 'expense' ? FinanceCore.expenseShares(tx) : tx.type === 'income' ? FinanceCore.incomeShares(tx) : {Pao:'',Tim:''}, paid = tx.type === 'expense' ? FinanceCore.expensePaid(tx) : {Pao:'',Tim:''}; return [tx.datetime,tx.type,tx.amount,tx.category || '',tx.payment || '',shares.Pao,shares.Tim,paid.Pao,paid.Tim,tx.direction || '',tx.type === 'saving' ? FinanceCore.savingAllocations(tx).map(item => `${item.user}:${item.amount}:${pocketById(item.pocketId)?.name || item.pocketId}`).join('|') : '',projectById(tx.projectId)?.name || '',tx.from || '',tx.to || '',tx.needsReview ? 'yes' : '',tx.note || '']; })];
 }
 
-function exportCSV() {
-  const csv = transactionExportRows().map(row => row.map(value => `"${String(value).replace(/"/g,'""')}"`).join(',')).join('\n');
-  download('\ufeff'+csv,'pao-tim-money-v6.csv','text/csv;charset=utf-8');
+function excelRawData() {
+  const paoName = who('Pao'), timName = who('Tim');
+  const headers = ['วันที่และเวลา','เดือน','ประเภท','รายการ','ยอดเต็ม (บาท)','หมวดหมู่','ช่องทางชำระ',`ส่วนของ${paoName} (บาท)`,`ส่วนของ${timName} (บาท)`,`${paoName}จ่ายจริง (บาท)`,`${timName}จ่ายจริง (บาท)`,'ทิศทางเงินเก็บ','รายละเอียดเงินเก็บ','เจ้าของกระเป๋า','โปรเจกต์','คืนเงินจาก','คืนเงินถึง','ที่มา','งวดที่','จำนวนงวด','ควรตรวจสอบ','หมายเหตุ','Transaction ID','Recurring ID'];
+  const rows = state.transactions.map(tx => {
+    const shares = tx.type === 'expense' ? FinanceCore.expenseShares(tx) : tx.type === 'income' ? FinanceCore.incomeShares(tx) : {Pao:null,Tim:null};
+    const paid = tx.type === 'expense' ? FinanceCore.expensePaid(tx) : {Pao:null,Tim:null};
+    const allocations = tx.type === 'saving' ? FinanceCore.savingAllocations(tx) : [];
+    const date = new Date(tx.datetime), source = transactionSource(tx);
+    const savingDetail = allocations.map(item => `${who(item.user)} ${Number(item.amount).toFixed(2)} → ${pocketById(item.pocketId)?.name || item.pocketId || 'ไม่ระบุกระเป๋า'}`).join(' | ');
+    const pocketOwners = [...new Set(allocations.map(item => pocketById(item.pocketId)?.owner).filter(Boolean))].map(who).join(', ');
+    return [Number.isNaN(date.getTime()) ? tx.datetime : date,monthKey(tx.datetime),typeLabel(tx.type),tx.note || tx.category || typeLabel(tx.type),Number(tx.amount) || 0,tx.category || null,tx.payment || null,shares.Pao,shares.Tim,paid.Pao,paid.Tim,tx.type === 'saving' ? (tx.direction === 'out' ? 'ถอนออก' : 'ออมเข้า') : null,savingDetail || null,pocketOwners || null,projectById(tx.projectId)?.name || null,tx.from ? who(tx.from) : null,tx.to ? who(tx.to) : null,source?.label || 'บันทึกเอง',tx.installmentNumber || null,tx.installmentTotal || null,tx.needsReview ? 'ใช่' : 'ไม่',tx.note || null,tx.id || null,tx.recurringId || null];
+  });
+  return {headers,rows};
+}
+
+function styleExcelHeader(row,fill='1F4E78') {
+  row.height = 24;
+  row.eachCell(cell => {
+    cell.font = {name:'Aptos',size:11,bold:true,color:{argb:'FFFFFFFF'}};
+    cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:`FF${fill}`}};
+    cell.alignment = {vertical:'middle',horizontal:'left',wrapText:true};
+    cell.border = {bottom:{style:'thin',color:{argb:'FFCBD5E1'}}};
+  });
+}
+
+function addExcelSummary(workbook) {
+  const sheet = workbook.addWorksheet('สรุป',{views:[{showGridLines:false,state:'frozen',ySplit:4}]});
+  const user = primaryUser(), other = FinanceCore.otherUser(user), monthTransactions = currentMonthTx(), summary = totals(monthTransactions,user);
+  const debt = debtFor(), userDebt = user === 'Pao' ? debt : -debt;
+  const categories = new Map();
+  for (const tx of monthTransactions.filter(item => item.type === 'expense')) {
+    const amount = FinanceCore.economicShare(tx,user), name = tx.category || 'ไม่ระบุหมวด';
+    if (amount > 0) categories.set(name,FinanceCore.fromCents(FinanceCore.toCents(categories.get(name) || 0)+FinanceCore.toCents(amount)));
+  }
+  const categoryRows = [...categories.entries()].sort((a,b) => b[1]-a[1]);
+
+  sheet.mergeCells('A1:D1');
+  const title = sheet.getCell('A1'); title.value = 'สรุปรายรับรายจ่าย'; title.font = {name:'Aptos Display',size:20,bold:true,color:{argb:'FFFFFFFF'}}; title.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FF0F766E'}}; title.alignment = {vertical:'middle',horizontal:'left'}; sheet.getRow(1).height = 34;
+  sheet.addRow(['เดือนที่สรุป',formatMonth(selectedMonth),'User หลัก',who(user)]);
+  sheet.addRow(['สร้างไฟล์เมื่อ',new Date(),'จำนวนรายการในเดือน',monthTransactions.length]);
+  sheet.addRow([]);
+  const metricHeader = sheet.addRow(['ภาพรวมของ '+who(user),'จำนวนเงิน (บาท)','ความหมาย']); styleExcelHeader(metricHeader);
+  const metricRows = [
+    ['รายรับ',summary.income,'ส่วนรายรับที่เป็นของ '+who(user)],
+    ['รายจ่าย',summary.expense,'ส่วนรายจ่ายที่ '+who(user)+'รับผิดชอบ'],
+    ['เงินเก็บสุทธิ',summary.saving,'ออมเข้าเป็นบวก ถอนออกเป็นลบ'],
+    ['เงินเหลือใช้',summary.available,'รายรับ − รายจ่าย − เงินเก็บ'],
+    ['อัตราเงินเก็บ',summary.rate/100,'เทียบกับรายรับของ '+who(user)]
+  ];
+  metricRows.forEach((values,index) => {
+    const row = sheet.addRow(values); row.height = 22;
+    row.getCell(2).numFmt = index === 4 ? '0.0%' : '"฿"#,##0.00;[Red]-"฿"#,##0.00';
+    if (index === 3) for (let column = 1; column <= 3; column++) { const cell = row.getCell(column); cell.font = {name:'Aptos',size:11,bold:true}; cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFE6FFFA'}}; }
+  });
+  sheet.addRow([]);
+  const debtHeader = sheet.addRow(['บัญชีระหว่างกัน (ทุกช่วงเวลา)','จำนวนเงิน (บาท)','สถานะ']); styleExcelHeader(debtHeader,'334155');
+  const debtLabel = Math.abs(userDebt) < .001 ? 'ไม่มียอดค้างระหว่างกัน' : userDebt > 0 ? `${who(other)}ค้าง${who(user)}` : `${who(user)}ค้าง${who(other)}`;
+  const debtRow = sheet.addRow(['ยอดค้างสุทธิ',Math.abs(userDebt),debtLabel]); debtRow.getCell(2).numFmt = '"฿"#,##0.00'; debtRow.height = 22;
+  sheet.addRow([]);
+  const categoryHeader = sheet.addRow(['รายจ่ายตามหมวด','จำนวนเงิน (บาท)','สัดส่วน']); styleExcelHeader(categoryHeader,'0F766E');
+  if (categoryRows.length) categoryRows.forEach(([name,amount],index) => {
+    const row = sheet.addRow([name,amount,summary.expense > 0 ? amount/summary.expense : 0]);
+    row.getCell(2).numFmt = '"฿"#,##0.00'; row.getCell(3).numFmt = '0.0%'; row.height = 21;
+    if (index % 2) for (let column = 1; column <= 3; column++) row.getCell(column).fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF1F5F9'}};
+  });
+  else sheet.addRow(['ไม่มีรายจ่ายในเดือนที่เลือก',0,0]);
+
+  sheet.columns = [{width:27},{width:20},{width:42},{width:3}];
+  sheet.getCell('B3').numFmt = 'dd/mm/yyyy hh:mm';
+  sheet.eachRow(row => row.eachCell(cell => {
+    cell.font = {...{name:'Aptos',size:11},...cell.font};
+    cell.alignment = {...{vertical:'middle'},...cell.alignment};
+  }));
+  sheet.pageSetup = {orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:.3,right:.3,top:.5,bottom:.5,header:.2,footer:.2}};
+}
+
+function addExcelRawData(workbook) {
+  const sheet = workbook.addWorksheet('ข้อมูลดิบ',{views:[{showGridLines:false,state:'frozen',ySplit:1,xSplit:1}]});
+  const {headers,rows} = excelRawData();
+  const header = sheet.addRow(headers); styleExcelHeader(header,'334155');
+  rows.forEach((values,index) => {
+    const row = sheet.addRow(values); row.height = 20;
+    row.eachCell(cell => { cell.font = {name:'Aptos',size:10}; cell.alignment = {vertical:'middle',wrapText:false}; });
+    if (index % 2) row.eachCell(cell => { cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFF8FAFC'}}; });
+    const sheetRow = index + 2;
+    sheet.getCell(`A${sheetRow}`).numFmt = 'dd/mm/yyyy hh:mm';
+    for (const column of ['E','H','I','J','K']) if (typeof sheet.getCell(`${column}${sheetRow}`).value === 'number') sheet.getCell(`${column}${sheetRow}`).numFmt = '"฿"#,##0.00;[Red]-"฿"#,##0.00';
+    for (const column of ['S','T']) if (typeof sheet.getCell(`${column}${sheetRow}`).value === 'number') sheet.getCell(`${column}${sheetRow}`).numFmt = '0';
+  });
+  sheet.autoFilter = {from:'A1',to:'X1'};
+  const widths = [20,11,12,28,16,18,20,18,18,19,19,16,38,20,20,16,16,24,10,12,14,30,24,24];
+  widths.forEach((width,index) => { sheet.getColumn(index+1).width = width; });
+  sheet.pageSetup = {orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:.2,right:.2,top:.4,bottom:.4,header:.2,footer:.2}};
+}
+
+async function exportXLSX(showSuccess = true) {
+  const button = document.querySelector('[data-export-excel]');
+  if (!window.ExcelJS) { toastMsg('ยังโหลดตัวสร้างไฟล์ Excel ไม่สำเร็จ กรุณารีเฟรชแล้วลองอีกครั้ง'); return false; }
+  if (button) { button.disabled = true; button.textContent = 'กำลังสร้าง…'; }
+  try {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Pao & Tim Money'; workbook.created = new Date(); workbook.modified = new Date(); workbook.calcProperties.fullCalcOnLoad = true;
+    addExcelSummary(workbook); addExcelRawData(workbook);
+    const buffer = await workbook.xlsx.writeBuffer();
+    download(buffer,`pao-tim-money-${selectedMonth}.xlsx`,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (showSuccess) toastMsg('สร้างไฟล์ Excel แล้ว — มีชีตสรุปและข้อมูลดิบ');
+    return true;
+  } catch (error) {
+    console.error(error); toastMsg('สร้างไฟล์ Excel ไม่สำเร็จ กรุณาลองอีกครั้ง'); return false;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'ส่งออก Excel'; }
+  }
 }
 
 async function exportGoogleSheets() {
@@ -2306,8 +2414,8 @@ async function exportGoogleSheets() {
     await navigator.clipboard.writeText(tsv);
     toastMsg(sheet ? 'เปิด Google Sheets แล้ว — กด Ctrl+V หรือวางที่ช่อง A1' : 'คัดลอกข้อมูลแล้ว — อนุญาตหน้าต่างใหม่ แล้วกดปุ่มนี้อีกครั้ง');
   } catch (_) {
-    exportCSV();
-    toastMsg(sheet ? 'เปิด Google Sheets แล้ว — นำเข้าไฟล์ CSV ที่ดาวน์โหลด' : 'ดาวน์โหลด CSV แล้ว — เปิดหรือนำเข้าใน Google Sheets ได้เลย');
+    const exported = await exportXLSX(false);
+    if (exported) toastMsg(sheet ? 'เปิด Google Sheets แล้ว — นำเข้าไฟล์ Excel ที่ดาวน์โหลด' : 'ดาวน์โหลด Excel แล้ว — เปิดหรือนำเข้าใน Google Sheets ได้เลย');
   }
 }
 
