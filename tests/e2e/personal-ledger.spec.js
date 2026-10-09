@@ -159,4 +159,31 @@ test('monthly income creates a reusable schedule and records the due month', asy
   expect(result.transaction).toMatchObject({type:'income',amount:30000,shares:{Pao:18000,Tim:12000},recurringGenerated:true});
   expect(result.paoTotals.income).toBe(18000);
   expect(result.timTotals.income).toBe(12000);
+
+  const scheduleId = result.schedule.id;
+  await page.evaluate(() => show('settings'));
+  await page.getByRole('button',{name:'แก้ไขรายการประจำ เงินเดือนประจำ'}).click();
+  await expect(page.locator('#formTitle')).toHaveText('แก้ไขรายรับประจำเดือน');
+  await expect(page.locator('#entryKind')).toBeDisabled();
+  await page.locator('#amount').fill('31000');
+  await page.locator('#incomePao').fill('19000');
+  await page.locator('#saveTxButton').click();
+
+  const edited = await page.evaluate(() => ({
+    schedules:state.recurring.filter(rec => rec.kind === 'monthly-income'),
+    past:state.transactions.find(tx => tx.recurringGenerated && tx.type === 'income')
+  }));
+  expect(edited.schedules).toHaveLength(1);
+  expect(edited.schedules[0]).toMatchObject({id:scheduleId,template:{amount:31000,shares:{Pao:19000,Tim:12000}}});
+  expect(edited.past).toMatchObject({amount:30000,shares:{Pao:18000,Tim:12000}});
+
+  await page.evaluate(() => {
+    window.open = url => { window.__sheetUrl = url; return {}; };
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text => { window.__sheetTsv = text; }}});
+  });
+  await page.getByRole('button',{name:'เปิด Google Sheets',exact:true}).click();
+  const sheetExport = await page.evaluate(() => ({url:window.__sheetUrl,tsv:window.__sheetTsv}));
+  expect(sheetExport.url).toBe('https://sheets.new');
+  expect(sheetExport.tsv).toContain('datetime\ttype\tgross_amount');
+  expect(sheetExport.tsv).toContain('\tincome\t30000\t');
 });

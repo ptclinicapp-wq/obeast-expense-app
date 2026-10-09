@@ -9,7 +9,7 @@ const DEF={
  transactions:[],
  recurring:[]
 };
-let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,editId:null,catExpanded:false};
+let form={type:'expense',payer:'Pao',owner:'Pao',incOwner:'Pao',savOwner:'Pao',split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,monthly:false,editId:null,recurringEditId:null,catExpanded:false};
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function save() {
@@ -195,7 +195,7 @@ function show(view, options = {}) {
   if (previous === 'add' && !options.saved) stashDraft();
   if (!options.fromPop && !restoringRoute) {
     history.replaceState({...route, scroll:window.scrollY, app:'pt-money'}, '', location.href);
-    route = {app:'pt-money', view, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, entryKind:view === 'add' ? entryKindFor() : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
+    route = {app:'pt-money', view, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, recurringEditId:view === 'add' ? form.recurringEditId : null, entryKind:view === 'add' ? entryKindFor() : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
     const url = '#' + view;
     if (options.replace || previous === 'add') history.replaceState(route, '', url);
     else if (previous !== view || options.detail) history.pushState(route, '', url);
@@ -239,7 +239,7 @@ function entryKindFor(value = form) {
   return value.type;
 }
 function entryLabel(kind) { return ({expense:'รายจ่ายทั่วไป',installment:'รายจ่ายผ่อน',monthly:'รายจ่ายประจำเดือน',income:'รายรับ','monthly-income':'รายรับประจำเดือน',saving:'เงินเก็บ'})[kind] || 'รายการ'; }
-function currentDraftKey() { return form.editId || 'new_' + entryKindFor(); }
+function currentDraftKey() { return form.recurringEditId ? 'recurring_' + form.recurringEditId : form.editId || 'new_' + entryKindFor(); }
 function openEntry(kind = 'expense', options = {}) {
   if (!['expense','installment','monthly','income','monthly-income','saving'].includes(kind)) kind = 'expense';
   const previous = currentView() === 'add' ? route.from || 'home' : currentView();
@@ -259,6 +259,7 @@ function openEntry(kind = 'expense', options = {}) {
 }
 function openInstallment() { openEntry('installment'); }
 function changeEntryKind(kind) {
+  if (form.recurringEditId) return;
   if (form.editId) { setType(kind); return; }
   // The select changes before the old draft is captured; keep its original kind.
   $('entryKind').value = entryKindFor();
@@ -336,7 +337,7 @@ function renderCats() {
   $('catChoices').innerHTML = visible.map(c => `<button class="choice cat-choice ${c === current ? 'active' : ''}" data-cat-choice="${esc(c)}" type="button" aria-pressed="${c === current}">${esc(c)}</button>`).join('') + (list.length > 4 ? `<button class="choice cat-more" data-cat-toggle="true" type="button" aria-expanded="${form.catExpanded}" aria-controls="categorySearchBox">${form.catExpanded ? 'แสดงหมวดที่ใช้บ่อย' : 'เลือกหมวดอื่น / ค้นหา'}</button>` : '') + (visible.length ? '' : '<p class="muted">ไม่พบหมวดที่ค้นหา</p>');
 }
 function renderPays() {
-  const existing = state.transactions.find(t => t.id === form.editId);
+  const existing = state.transactions.find(t => t.id === form.editId) || state.recurring.find(rec => rec.id === form.recurringEditId)?.template;
   const current = $('pay').value || existing?.payment || state.settings.defaultPayment;
   const payments = [...state.payments];
   if (existing?.payment && !payments.includes(existing.payment)) payments.push(existing.payment);
@@ -380,6 +381,7 @@ function syncInstallmentForm() {
   const monthly = ['expense','income'].includes(form.type) && form.monthly && !form.editId;
   const scheduled = active || monthly;
   $('entryKind').value = entryKindFor();
+  $('entryKind').disabled = !!form.recurringEditId;
   for (const option of $('entryKind').options) option.hidden = !!form.editId && ['monthly','monthly-income','installment'].includes(option.value);
   $('installmentField').hidden = !active;
   $('planNameField').hidden = !scheduled;
@@ -387,7 +389,7 @@ function syncInstallmentForm() {
   $('monthlyBox').hidden = !monthly;
   $('monthlyBox').classList.toggle('show',monthly);
   $('scheduleHelp').hidden = !scheduled;
-  $('transactionDateField').hidden = scheduled;
+  $('transactionDateField').hidden = scheduled || !!form.recurringEditId;
   $('installmentSwitch').classList.toggle('on',active);
   $('installmentSwitch').setAttribute('aria-pressed',String(active));
   $('installmentBox').classList.toggle('show',active);
@@ -401,8 +403,12 @@ function syncInstallmentForm() {
     $('formTitle').textContent = monthly ? 'เพิ่มรายรับประจำเดือน' : 'เพิ่มรายรับ';
     $('formSubtitle').textContent = monthly ? 'ตั้งครั้งเดียว บันทึกรายรับให้อัตโนมัติทุกเดือน' : 'บันทึกเงินที่ได้รับ';
   }
+  if (form.recurringEditId) {
+    $('formTitle').textContent = `แก้ไข${entryLabel(entryKindFor())}`;
+    $('formSubtitle').textContent = 'การแก้ไขมีผลกับรอบถัดไป รายการที่บันทึกไปแล้วจะคงเดิม';
+  }
   $('planName').placeholder = monthly && form.type === 'income' ? 'เช่น เงินเดือน / ค่าเช่า' : 'เช่น ผ่อนโทรศัพท์ / ค่าเช่าห้อง';
-  $('recurringField').hidden = scheduled || form.type === 'expense' || !!form.editId || (form.type === 'saving' && form.savingDirection === 'out');
+  $('recurringField').hidden = scheduled || form.type === 'expense' || !!form.editId || !!form.recurringEditId || (form.type === 'saving' && form.savingDirection === 'out');
   $('recBox').classList.toggle('show',form.recurring && !scheduled);
   const shareLabel = active && $('installmentBasis').value === 'total' ? ' (ยอดรวม)' : scheduled ? ' (ต่อเดือน)' : '';
   document.querySelector('label[for="ps"]').textContent = 'ส่วนของเปา' + shareLabel;
@@ -460,7 +466,7 @@ function updateFormSummary() {
   }
   $('formSummary').innerHTML = form.type === 'income' ? esc(summary) : summary;
   $('saveHint').textContent = hint;
-  $('saveTxButton').textContent = `${form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
+  $('saveTxButton').textContent = `${form.recurringEditId ? 'บันทึกการแก้ไขรายการประจำ' : form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
   if (form.installment && !form.editId) {
     const quote = installmentQuote(), start = scheduleDate('installment');
     let preview = 'ใส่ยอดเงินและจำนวนเดือนเพื่อดูยอดผ่อน';
@@ -650,7 +656,9 @@ function generateDueTransactions(rec, now = Date.now()) {
   while (rec.enabled && new Date(rec.nextRun).getTime() <= now && count < (installment ? 600 : ['monthly-expense','monthly-income'].includes(rec.kind) ? 1800 : 24)) {
     if (installment && rec.completedInstallments >= rec.totalInstallments) { rec.enabled = false; break; }
     const number = installment ? rec.completedInstallments + 1 : null;
-    if (!installment || !state.transactions.some(tx => tx.recurringId === rec.id && tx.installmentNumber === number)) {
+    const scheduledAt = new Date(rec.nextRun).toISOString();
+    const duplicate = state.transactions.some(tx => tx.recurringId === rec.id && (installment ? tx.installmentNumber === number : new Date(tx.datetime).toISOString() === scheduledAt));
+    if (!duplicate) {
       const tx = {...clone(rec.template),id:id(),datetime:rec.nextRun,recurringId:rec.id,recurringGenerated:true};
       if (installment) { Object.assign(tx,installmentPayment(rec,number)); tx.installmentNumber = number; tx.installmentTotal = rec.totalInstallments; }
       state.transactions.push(tx);
@@ -865,7 +873,7 @@ function renderInstallments() {
   $('installmentList').innerHTML = plans.map(rec => row(rec,true)).join('') || '<p class="empty">ยังไม่มีรายการผ่อน</p>';
 }
 function toggleRec(rid){const r=state.recurring.find(x=>x.id===rid);if(r){if(r.kind==='installment'&&r.completedInstallments>=r.totalInstallments)return;r.enabled=!r.enabled;save();checkRecurring();renderAll()}}
-function delRec(rid){const rec=state.recurring.find(x=>x.id===rid);if(!rec)return;if(!confirm(rec.kind==='installment'?'ยกเลิกแผนผ่อนนี้? รายจ่ายที่บันทึกไปแล้วยังคงอยู่ และจะไม่เพิ่มงวดใหม่':'ลบรายการประจำนี้?'))return;state.recurring=state.recurring.filter(x=>x.id!==rid);save();renderAll()}
+function delRec(rid){const rec=state.recurring.find(x=>x.id===rid);if(!rec)return;if(!confirm(rec.kind==='installment'?'ยกเลิกแผนผ่อนนี้? รายจ่ายที่บันทึกไปแล้วยังคงอยู่ และจะไม่เพิ่มงวดใหม่':'ลบรายการประจำนี้? รายการที่บันทึกไปแล้วจะยังคงอยู่'))return;state.recurring=state.recurring.filter(x=>x.id!==rid);removeDraft('recurring_'+rid);save();renderAll()}
 function openBudget(){
  $('overallBudget').value=state.settings.overallBudget||0;
  $('catBudFields').innerHTML=state.categories.expense.map((c,i)=>`<div class="field" style="margin-bottom:8px"><label for="catBudget_${i}">${esc(c)}</label><input id="catBudget_${i}" class="input catb" data-cat="${esc(c)}" value="${state.budgets[c]||''}" placeholder="ไม่ตั้งงบ" inputmode="decimal"></div>`).join('');
@@ -1038,9 +1046,10 @@ function restoreDraft(key) {
   const draft = draftCache[key];
   if (!draft?.form || !draft.values || !['expense','income','saving'].includes(draft.form.type)) return false;
   if (draft.form.editId && !state.transactions.some(t => t.id === draft.form.editId)) { removeDraft(key); return false; }
+  if (draft.form.recurringEditId && !state.recurring.some(rec => rec.id === draft.form.recurringEditId)) { removeDraft(key); return false; }
   restoringDraft = true;
   form = {...form,...draft.form};
-  if (form.type === 'expense' && form.recurring) { form.monthly = true; form.recurring = false; }
+  if (form.type === 'expense' && form.recurring && !form.recurringEditId) { form.monthly = true; form.recurring = false; }
   setType(form.type); renderPays(); renderSelects();
   for (const field of draftFields) if (typeof draft.values[field] === 'string') $(field).value = draft.values[field];
   if ((form.installment || form.monthly) && !draft.values.installmentStart) {
@@ -1061,7 +1070,7 @@ function syncChoices() {
   syncA11yState();
 }
 function renderDraftNotice() {
-  const drafts = Object.values(draftCache).filter(x => x?.form && (x.form.editId ? state.transactions.some(t => t.id === x.form.editId) : true)).sort((a,b) => b.updatedAt-a.updatedAt);
+  const drafts = Object.values(draftCache).filter(x => x?.form && (x.form.editId ? state.transactions.some(t => t.id === x.form.editId) : true) && (x.form.recurringEditId ? state.recurring.some(rec => rec.id === x.form.recurringEditId) : true)).sort((a,b) => b.updatedAt-a.updatedAt);
   $('draftNotice').hidden = !drafts.length;
   if (drafts.length) $('draftDescription').textContent = `${entryLabel(entryKindFor(drafts[0].form))} ${drafts[0].values.amount ? money(parseMoney(drafts[0].values.amount) || 0) : ''}${drafts.length > 1 ? ` · มี ${drafts.length} แบบร่าง แยกตามประเภท` : ' · กรอกต่อจากที่ค้างไว้ได้'}`;
 }
@@ -1069,13 +1078,13 @@ function resumeLatestDraft() {
   const drafts = Object.entries(draftCache).filter(([,x]) => x?.form).sort((a,b) => b[1].updatedAt-a[1].updatedAt);
   if (!drafts.length) return;
   const [key,draft] = drafts[0];
-  if (draft.form.editId) editTx(draft.form.editId); else openEntry(entryKindFor(draft.form));
+  if (draft.form.recurringEditId) editRecurring(draft.form.recurringEditId); else if (draft.form.editId) editTx(draft.form.editId); else openEntry(entryKindFor(draft.form));
 }
 function clearForm() {
-  if (draftSignature() !== formBaseline && !confirm(form.editId ? 'คืนค่าฟอร์มเป็นข้อมูลที่บันทึกไว้? การแก้ไขในแบบร่างนี้จะถูกล้าง' : 'ล้างข้อมูลที่กรอกในฟอร์มนี้?')) return;
-  const editId = form.editId, kind = entryKindFor();
+  if (draftSignature() !== formBaseline && !confirm(form.editId || form.recurringEditId ? 'คืนค่าฟอร์มเป็นข้อมูลที่บันทึกไว้? การแก้ไขในแบบร่างนี้จะถูกล้าง' : 'ล้างข้อมูลที่กรอกในฟอร์มนี้?')) return;
+  const editId = form.editId, recurringEditId = form.recurringEditId, kind = entryKindFor();
   removeDraft(currentDraftKey());
-  if (editId) editTx(editId); else openEntry(kind,{fresh:true});
+  if (recurringEditId) editRecurring(recurringEditId); else if (editId) editTx(editId); else openEntry(kind,{fresh:true});
   $('amount').focus();
 }
 function dismissLocalNotice() { state.settings.localNoticeDismissed = true; save(); renderAll(); }
@@ -1244,7 +1253,8 @@ window.addEventListener('popstate',event => {
   route = event.state?.app === 'pt-money' ? event.state : {app:'pt-money',view:'home',scroll:0};
   restoringRoute = true;
   if (route.view === 'add') {
-    if (route.editId && state.transactions.some(t => t.id === route.editId)) editTx(route.editId);
+    if (route.recurringEditId && state.recurring.some(rec => rec.id === route.recurringEditId)) editRecurring(route.recurringEditId);
+    else if (route.editId && state.transactions.some(t => t.id === route.editId)) editTx(route.editId);
     else openEntry(route.entryKind || 'expense');
   } else show(route.view || 'home',{fromPop:true});
   restoringRoute = false;
@@ -1265,7 +1275,8 @@ if (initialRoute) {
   route = initialRoute;
   restoringRoute = true;
   if (initialView === 'add') {
-    if (route.editId && state.transactions.some(tx => tx.id === route.editId)) editTx(route.editId);
+    if (route.recurringEditId && state.recurring.some(rec => rec.id === route.recurringEditId)) editRecurring(route.recurringEditId);
+    else if (route.editId && state.transactions.some(tx => tx.id === route.editId)) editTx(route.editId);
     else openEntry(route.entryKind || 'expense');
   } else show(initialView,{fromPop:true});
   restoringRoute = false;
@@ -1566,7 +1577,7 @@ function dailyAllowance(value = totals(), now = new Date()) {
 }
 
 function renderSelects() {
-  const existing = state.transactions.find(tx => tx.id === form.editId);
+  const existing = state.transactions.find(tx => tx.id === form.editId) || state.recurring.find(rec => rec.id === form.recurringEditId)?.template;
   const projectOptions = selected => '<option value="">ไม่ระบุโปรเจกต์</option>' + state.projects.filter(project => project.status !== 'Archived' || project.id === selected || project.id === existing?.projectId).map(project => `<option value="${esc(project.id)}">${esc(project.icon || '▣')} ${esc(project.name)}${project.status === 'Archived' ? ' (เก็บเข้าคลัง)' : ''}</option>`).join('');
   for (const key of ['project','savingProject']) {
     const element = $(key), current = element.value;
@@ -1714,7 +1725,7 @@ function updateFormSummary() {
   }
   $('formSummary').innerHTML = summary;
   $('saveHint').textContent = hint;
-  $('saveTxButton').textContent = `${form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
+  $('saveTxButton').textContent = `${form.recurringEditId ? 'บันทึกการแก้ไขรายการประจำ' : form.editId ? 'บันทึกการแก้ไข' : 'บันทึก' + typeLabel(form.type)}${amount > 0 ? ' ' + money(amount) : ''}`;
   if (form.installment && !form.editId) {
     const quote = installmentQuote(), start = scheduleDate('installment');
     $('installmentPreview').textContent = quote ? `เดือนละ ${money(quote.amount)} · ${quote.count} เดือน · รวม ${money(quote.total)}${quote.finalAmount !== quote.amount ? ` · เดือนสุดท้าย ${money(quote.finalAmount)}` : ''}${start ? ` · เริ่ม ${formatMonth(monthKey(start))}` : ''}` : 'ใส่ยอดเงินและจำนวนเดือนเพื่อดูยอดผ่อน';
@@ -1723,7 +1734,7 @@ function updateFormSummary() {
     const start = scheduleDate('monthly');
     const action = form.type === 'income' ? 'รับ' : 'จ่าย';
     $('monthlyPreview').textContent = start ? `${action}เดือนละ ${money(amount)} · ทุกวันที่ ${$('monthlyDay').value} · เริ่ม ${formatMonth(monthKey(start))}` : 'เลือกเดือนเริ่มต้น';
-    $('saveTxButton').textContent = form.type === 'income' ? 'บันทึกรายรับประจำเดือน' : 'บันทึกรายจ่ายประจำเดือน';
+    $('saveTxButton').textContent = form.recurringEditId ? 'บันทึกการแก้ไขรายการประจำ' : form.type === 'income' ? 'บันทึกรายรับประจำเดือน' : 'บันทึกรายจ่ายประจำเดือน';
   }
   const pocket = pocketById($('pocket').value);
   $('pocketBalanceHint').textContent = pocket ? `ยอดคงเหลือ ${money(pocketBalance(pocket.id))} · เจ้าของ ${who(pocket.owner)}` : '';
@@ -1733,7 +1744,7 @@ function updateFormSummary() {
 function resetForm() {
   restoringDraft = true;
   const primary = primaryUser();
-  form = {type:'expense',payer:primary,owner:primary,incOwner:primary,savOwner:primary,split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,monthly:false,editId:null,catExpanded:false,savingDirection:'in'};
+  form = {type:'expense',payer:primary,owner:primary,incOwner:primary,savOwner:primary,split:'half',splitAnchor:null,paidAnchor:null,incomeAnchor:null,savingAnchor:null,recurring:false,installment:false,monthly:false,editId:null,recurringEditId:null,catExpanded:false,savingDirection:'in'};
   for (const key of ['amount','note','ps','ts','paidPao','paidTim','incomePao','incomeTim','savingPao','savingTim','nextRun','cat','categorySearch','installmentCount','planName']) if ($(key)) $(key).value = '';
   $('paoPercent').value = $('timPercent').value = '50';
   document.querySelectorAll('[data-month-day]').forEach(element => { if (!element.options.length) element.innerHTML = Array.from({length:31},(_,index) => `<option value="${index+1}">${index+1}</option>`).join(''); element.value = '1'; });
@@ -1776,6 +1787,8 @@ function saveTx() {
   clearFieldErrors();
   const amount = parseMoney($('amount').value);
   if (!Number.isFinite(amount) || amount <= 0) return fieldError('amount','ใส่จำนวนเงินมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
+  const existingRecurring = state.recurring.find(rec => rec.id === form.recurringEditId);
+  if (form.recurringEditId && !existingRecurring) return fieldError('formError','ไม่พบรายการประจำเดิม รายการอาจถูกลบไปแล้ว');
   const scheduleKind = !form.editId ? form.type === 'expense' && form.installment ? 'installment' : ['expense','income'].includes(form.type) && form.monthly ? 'monthly' : null : null;
   const date = scheduleKind ? scheduleDate(scheduleKind) : new Date($('dt').value);
   if (!date || !Number.isFinite(date.getTime())) return fieldError(scheduleKind ? scheduleKind+'Start' : 'dt','เลือกเดือนหรือวันที่ให้ครบ');
@@ -1820,24 +1833,30 @@ function saveTx() {
     recurring.installmentTotalSplit = {...recurring.installmentTotalShares};
     Object.assign(recurring.template,installmentPayment(recurring,1));
   } else if (scheduleKind === 'monthly') {
-    recurring = {id:id(),kind:form.type === 'income' ? 'monthly-income' : 'monthly-expense',enabled:true,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    recurring = {...existingRecurring,id:existingRecurring?.id || id(),kind:form.type === 'income' ? 'monthly-income' : 'monthly-expense',enabled:existingRecurring?.enabled !== false,frequency:'monthly',nextRun:date.toISOString(),dayOfMonth:Number($('monthlyDay').value),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
   } else if (!existing && form.recurring && !(form.type === 'saving' && form.savingDirection === 'out')) {
     const next = new Date($('nextRun').value);
-    if (!Number.isFinite(next.getTime()) || next.getTime() <= Date.now()) return fieldError('nextRun','เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
-    recurring = {id:id(),enabled:true,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
+    if (!Number.isFinite(next.getTime()) || (!existingRecurring && next.getTime() <= Date.now())) return fieldError('nextRun','เลือกเวลารอบถัดไปหลังจากเวลาปัจจุบัน');
+    recurring = {...existingRecurring,id:existingRecurring?.id || id(),enabled:existingRecurring?.enabled !== false,frequency:$('freq').value,nextRun:next.toISOString(),dayOfMonth:next.getDate(),template:{...tx,id:null,datetime:null,recurringId:null,recurringGenerated:false}};
   }
   savingTx = true; $('saveTxButton').disabled = true;
-  const draftKey = currentDraftKey(), oldTx = existing ? clone(existing) : null, scheduled = !!scheduleKind;
-  const target = route.from && route.from !== 'add' ? route.from : existing ? 'history' : 'home';
+  const draftKey = currentDraftKey(), oldTx = existing ? clone(existing) : null, oldRecurring = existingRecurring ? clone(existingRecurring) : null;
+  const generatedBefore = new Set(state.transactions.map(item => item.id)), scheduled = !!scheduleKind || !!existingRecurring;
+  const target = route.from && route.from !== 'add' ? route.from : existing ? 'history' : existingRecurring ? 'settings' : 'home';
   try {
     if (existing) state.transactions = state.transactions.map(item => item.id === tx.id ? tx : item);
     else if (!scheduled) state.transactions.push(tx);
-    if (recurring) state.recurring.push(recurring);
-    if (scheduled) generateDueTransactions(recurring);
-    save(); removeDraft(draftKey); highlightTxId = tx.id; resetForm(); show(target,{replace:true,restore:!!existing,saved:true});
-    toastMsg(existing ? 'บันทึกการแก้ไขแล้ว' : scheduled ? 'บันทึกแผนแล้ว' : `บันทึก ${money(amount)} แล้ว`,() => {
-      state.transactions = oldTx ? state.transactions.map(item => item.id === tx.id ? oldTx : item) : state.transactions.filter(item => scheduled ? item.recurringId !== recurring.id : item.id !== tx.id);
-      if (recurring) state.recurring = state.recurring.filter(item => item.id !== recurring.id);
+    if (recurring) {
+      if (existingRecurring) state.recurring = state.recurring.map(item => item.id === recurring.id ? recurring : item);
+      else state.recurring.push(recurring);
+    }
+    if (scheduled && recurring) generateDueTransactions(recurring);
+    const newlyGeneratedIds = new Set(state.transactions.filter(item => !generatedBefore.has(item.id)).map(item => item.id));
+    save(); removeDraft(draftKey); highlightTxId = tx.id; resetForm(); show(target,{replace:true,restore:!!existing || !!existingRecurring,saved:true});
+    toastMsg(existingRecurring ? 'แก้ไขรายการประจำแล้ว รอบที่บันทึกไปแล้วยังคงเดิม' : existing ? 'บันทึกการแก้ไขแล้ว' : recurring ? 'บันทึกรายการประจำแล้ว' : `บันทึก ${money(amount)} แล้ว`,() => {
+      state.transactions = oldTx ? state.transactions.map(item => item.id === tx.id ? oldTx : item) : state.transactions.filter(item => existingRecurring ? !newlyGeneratedIds.has(item.id) : scheduled ? item.recurringId !== recurring.id : item.id !== tx.id);
+      if (oldRecurring) state.recurring = state.recurring.map(item => item.id === oldRecurring.id ? oldRecurring : item);
+      else if (recurring) state.recurring = state.recurring.filter(item => item.id !== recurring.id);
       save(); renderAll();
     });
   } catch (error) { fieldError('formError',error.message); }
@@ -1866,6 +1885,56 @@ function editTx(txid) {
     } else $('pocket').value = allocations[0]?.pocketId || tx.pocketId || '';
   }
   syncChoices(); updateSplit(); updateFormSummary(); $('optionalDetails').open = !!(tx.note || tx.projectId); formBaseline = draftSignature(); restoreDraft(tx.id); show('add',{from:origin});
+}
+
+function editRecurring(recurringId) {
+  const rec = state.recurring.find(item => item.id === recurringId);
+  if (!rec || rec.kind === 'installment') return;
+  const tx = FinanceCore.normalizeTransaction(rec.template);
+  const origin = currentView() === 'add' ? route.from || 'settings' : currentView();
+  resetForm();
+  form.recurringEditId = rec.id;
+  setType(tx.type);
+  const monthly = ['monthly-expense','monthly-income'].includes(rec.kind);
+  form.monthly = monthly;
+  form.recurring = !monthly;
+  renderPays(); renderSelects();
+  $('amount').value = Math.abs(tx.amount);
+  $('dt').value = ldt(new Date(rec.nextRun));
+  $('pay').value = tx.payment || state.settings.defaultPayment;
+  if (tx.type !== 'saving') { $('cat').value = tx.category || ''; renderCats(); }
+  if (monthly) {
+    const noteParts = String(tx.note || '').split(' · ');
+    $('planName').value = noteParts.shift() || tx.category || '';
+    $('note').value = noteParts.join(' · ');
+    $('monthlyStart').value = monthKey(new Date(rec.nextRun));
+    $('monthlyDay').value = String(rec.dayOfMonth || new Date(rec.nextRun).getDate());
+  } else {
+    $('note').value = tx.note || '';
+    $('freq').value = rec.frequency || 'monthly';
+    $('nextRun').value = ldt(new Date(rec.nextRun));
+  }
+  if (tx.type === 'expense') {
+    const shares = FinanceCore.expenseShares(tx), paid = FinanceCore.expensePaid(tx);
+    form.owner = FinanceCore.ownerFromShares(shares); form.payer = FinanceCore.payerFromPaid(paid); form.split = Math.abs(shares.Pao-shares.Tim) <= .01 ? 'half' : 'custom';
+    $('ps').value = shares.Pao; $('ts').value = shares.Tim; $('paidPao').value = paid.Pao; $('paidTim').value = paid.Tim; $('project').value = tx.projectId || '';
+  } else if (tx.type === 'income') {
+    const shares = FinanceCore.incomeShares(tx); form.incOwner = FinanceCore.ownerFromShares(shares); $('incomePao').value = shares.Pao; $('incomeTim').value = shares.Tim;
+  } else {
+    const allocations = FinanceCore.savingAllocations(tx); form.savOwner = allocations.length > 1 ? 'Both' : allocations[0]?.user || primaryUser(); form.savingDirection = tx.direction || 'in'; $('savingProject').value = tx.projectId || '';
+    if (form.savOwner === 'Both') {
+      const pao = allocations.find(item => item.user === 'Pao'), tim = allocations.find(item => item.user === 'Tim');
+      $('savingPao').value = pao?.amount || ''; $('savingTim').value = tim?.amount || ''; $('pocketPao').value = pao?.pocketId || ''; $('pocketTim').value = tim?.pocketId || '';
+    } else $('pocket').value = allocations[0]?.pocketId || tx.pocketId || '';
+  }
+  syncInstallmentForm();
+  $('recSwitch').classList.toggle('on',form.recurring);
+  $('recSwitch').setAttribute('aria-pressed',String(form.recurring));
+  syncChoices(); updateSplit(); updateFormSummary();
+  $('optionalDetails').open = !!(tx.note || tx.projectId || !monthly);
+  formBaseline = draftSignature();
+  restoreDraft('recurring_'+rec.id);
+  show('add',{from:origin});
 }
 
 function renderUserLabels() {
@@ -2170,7 +2239,7 @@ function renderSettings() {
   $('userNamePao').value = userName('Pao'); $('userNameTim').value = userName('Tim'); $('primaryUserInput').value = primaryUser();
   $('payments').innerHTML = state.payments.map((payment,index) => `<div class="setrow"><div><b>${esc(payment)}</b><small class="muted" style="display:block">${payment === state.settings.defaultPayment ? 'ค่าเริ่มต้น' : ''}</small></div><div>${payment !== state.settings.defaultPayment ? `<button class="soft" onclick="setDefaultByIndex(${index})">ตั้งเป็นค่าเริ่มต้น</button>` : ''} ${state.payments.length > 1 && payment !== state.settings.defaultPayment ? `<button class="danger" onclick="removePayByIndex(${index})">ลบ</button>` : ''}</div></div>`).join('');
   $('pocketSettings').innerHTML = state.pockets.map(pocket => `<div class="setrow"><div><b>${esc(pocket.icon || '💰')} ${esc(pocket.name)} <span class="badge">${esc(who(pocket.owner))}</span>${pocket.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</b><small class="muted" style="display:block">${money(pocketBalance(pocket.id))} / ${money(pocket.goal)}</small></div><button class="soft" onclick="editPocket(${jsArg(pocket.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีกระเป๋าเงินเก็บ</div>';
-  $('recList').innerHTML = state.recurring.filter(rec => rec.kind !== 'installment').map(rec => `<div class="setrow"><div><b>↻ ${esc(rec.template.note || rec.template.category || 'รายการประจำ')} · ${money(Math.abs(FinanceCore.economicShare(rec.template,primaryUser())))}</b><small class="muted" style="display:block">${esc(typeLabel(rec.template.type))}ประจำ · ส่วนของ${who(primaryUser())} · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleString('th-TH')}</small></div><div><button class="switch ${rec.enabled ? 'on' : ''}" onclick="toggleRec(${jsArg(rec.id)})"></button> <button class="danger" onclick="delRec(${jsArg(rec.id)})">ลบ</button></div></div>`).join('') || '<div class="empty">ยังไม่มีรายการประจำ</div>';
+  $('recList').innerHTML = state.recurring.filter(rec => rec.kind !== 'installment').map(rec => { const name = rec.template.note || rec.template.category || 'รายการประจำ'; return `<div class="setrow"><div><b>↻ ${esc(name)} · ${money(Math.abs(FinanceCore.economicShare(rec.template,primaryUser())))}</b><small class="muted" style="display:block">${esc(typeLabel(rec.template.type))}ประจำ · ส่วนของ${who(primaryUser())} · ครั้งถัดไป ${new Date(rec.nextRun).toLocaleString('th-TH')}</small></div><div><button class="soft" onclick="editRecurring(${jsArg(rec.id)})" aria-label="แก้ไขรายการประจำ ${esc(name)}">แก้ไข</button> <button class="switch ${rec.enabled ? 'on' : ''}" onclick="toggleRec(${jsArg(rec.id)})" aria-label="เปิดหรือพักรายการประจำ ${esc(name)}" aria-pressed="${rec.enabled ? 'true' : 'false'}"></button> <button class="danger" onclick="delRec(${jsArg(rec.id)})" aria-label="ลบรายการประจำ ${esc(name)}">ลบ</button></div></div>`; }).join('') || '<div class="empty">ยังไม่มีรายการประจำ</div>';
   const book = budgetBook(); $('budSettings').innerHTML = `<div class="setrow"><div><b>งบรวมของ${esc(who(primaryUser()))}</b><small class="muted" style="display:block">ใช้จริง ${money(totals().expense)}</small></div><b>${money(book.overall)}</b></div>` + Object.entries(book.categories).map(([category,limit]) => `<div class="setrow"><div>${esc(category)}</div><b>${money(limit)}</b></div>`).join('');
   $('projectSettings').innerHTML = state.projects.map(project => `<div class="setrow"><div><b>${esc(project.icon || '▣')} ${esc(project.name)}</b><small class="muted" style="display:block">งบรวม ${money(project.budgetTotal || project.budget)} · ส่วนของ${who(primaryUser())} ${project.budgetShares ? money(project.budgetShares[primaryUser()]) : 'ยังไม่ตั้ง'}</small></div><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้</button></div>`).join('') || '<div class="empty">ยังไม่มีโปรเจกต์</div>';
   $('themeSwitch').classList.toggle('on',state.settings.theme === 'dark'); $('homeIncomeSwitch').classList.toggle('on',state.settings.hideIncomeHome !== false); renderUserLabels();
@@ -2211,9 +2280,27 @@ function deleteTx(txid) {
   try { save(); removeDraft(txid); if (visibleModal()) closeTopModal(); renderAll(); toastMsg('ลบรายการแล้ว',() => { if (!state.transactions.some(item => item.id === tx.id)) state.transactions.push(tx); save(); renderAll(); }); } catch (error) { toastMsg(error.message); }
 }
 
+function transactionExportRows() {
+  return [['datetime','type','gross_amount','category','payment','pao_share','tim_share','pao_paid','tim_paid','saving_direction','saving_allocations','project','settlement_from','settlement_to','needs_review','note'],...state.transactions.map(tx => { const shares = tx.type === 'expense' ? FinanceCore.expenseShares(tx) : tx.type === 'income' ? FinanceCore.incomeShares(tx) : {Pao:'',Tim:''}, paid = tx.type === 'expense' ? FinanceCore.expensePaid(tx) : {Pao:'',Tim:''}; return [tx.datetime,tx.type,tx.amount,tx.category || '',tx.payment || '',shares.Pao,shares.Tim,paid.Pao,paid.Tim,tx.direction || '',tx.type === 'saving' ? FinanceCore.savingAllocations(tx).map(item => `${item.user}:${item.amount}:${pocketById(item.pocketId)?.name || item.pocketId}`).join('|') : '',projectById(tx.projectId)?.name || '',tx.from || '',tx.to || '',tx.needsReview ? 'yes' : '',tx.note || '']; })];
+}
+
 function exportCSV() {
-  const rows = [['datetime','type','gross_amount','category','payment','pao_share','tim_share','pao_paid','tim_paid','saving_direction','saving_allocations','project','settlement_from','settlement_to','needs_review','note'],...state.transactions.map(tx => { const shares = tx.type === 'expense' ? FinanceCore.expenseShares(tx) : tx.type === 'income' ? FinanceCore.incomeShares(tx) : {Pao:'',Tim:''}, paid = tx.type === 'expense' ? FinanceCore.expensePaid(tx) : {Pao:'',Tim:''}; return [tx.datetime,tx.type,tx.amount,tx.category || '',tx.payment || '',shares.Pao,shares.Tim,paid.Pao,paid.Tim,tx.direction || '',tx.type === 'saving' ? FinanceCore.savingAllocations(tx).map(item => `${item.user}:${item.amount}:${pocketById(item.pocketId)?.name || item.pocketId}`).join('|') : '',projectById(tx.projectId)?.name || '',tx.from || '',tx.to || '',tx.needsReview ? 'yes' : '',tx.note || '']; })];
-  download('\ufeff'+rows.map(row => row.map(value => `"${String(value).replace(/"/g,'""')}"`).join(',')).join('\n'),'pao-tim-money-v6.csv','text/csv;charset=utf-8');
+  const csv = transactionExportRows().map(row => row.map(value => `"${String(value).replace(/"/g,'""')}"`).join(',')).join('\n');
+  download('\ufeff'+csv,'pao-tim-money-v6.csv','text/csv;charset=utf-8');
+}
+
+async function exportGoogleSheets() {
+  const sheet = window.open('https://sheets.new','_blank');
+  if (sheet) sheet.opener = null;
+  const tsv = transactionExportRows().map(row => row.map(value => String(value).replace(/[\t\r\n]+/g,' ')).join('\t')).join('\n');
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
+    await navigator.clipboard.writeText(tsv);
+    toastMsg(sheet ? 'เปิด Google Sheets แล้ว — กด Ctrl+V หรือวางที่ช่อง A1' : 'คัดลอกข้อมูลแล้ว — อนุญาตหน้าต่างใหม่ แล้วกดปุ่มนี้อีกครั้ง');
+  } catch (_) {
+    exportCSV();
+    toastMsg(sheet ? 'เปิด Google Sheets แล้ว — นำเข้าไฟล์ CSV ที่ดาวน์โหลด' : 'ดาวน์โหลด CSV แล้ว — เปิดหรือนำเข้าใน Google Sheets ได้เลย');
+  }
 }
 
 function backup() {
