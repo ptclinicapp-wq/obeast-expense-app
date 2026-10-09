@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20261009-recurring-edit-sheets">
+<link rel="stylesheet" href="./styles.css?v=20261009-history-source">
 </head>
 <body>
 <div class="app">
@@ -288,6 +288,6 @@
 <div class="toast" id="toast" hidden><span id="toastText" role="status" aria-live="polite"></span><button id="toastUndo" class="toast-undo" onclick="undoLastAction()" hidden>เลิกทำ</button></div>
 <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><h2 id="restoreTitle">ตรวจสอบก่อนกู้คืน</h2><p id="restoreFileName" class="muted"></p><div id="restoreComparison"></div><p class="restore-warning">ข้อมูลในไฟล์จะแทนที่รายการและการตั้งค่าปัจจุบันทั้งหมด แอปจะเก็บสำเนาก่อนแทนที่ไว้ให้ย้อนกลับได้</p><div id="restoreError" class="inline-error" role="alert" hidden></div><div class="actions"><button class="btn" onclick="cancelRestore()">ยกเลิก</button><button class="primary" id="confirmRestoreButton" onclick="confirmRestore()">แทนที่ด้วยข้อมูลนี้</button></div></div></div>
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
-<script src="./finance-core.js?v=20261009-recurring-edit-sheets" defer></script>
-<script src="./app.js?v=20261009-recurring-edit-sheets" defer></script>
+<script src="./finance-core.js?v=20261009-history-source" defer></script>
+<script src="./app.js?v=20261009-history-source" defer></script>
 </body></html>

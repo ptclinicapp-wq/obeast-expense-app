@@ -157,6 +157,9 @@ body[data-view=add] .fab{display:none}
 .review-badge{background:#FFF1D6;color:#80591F}
 .personal-project-stat{grid-template-columns:repeat(2,minmax(0,1fr))}
 .tx-debt-note{display:block;margin-top:3px;color:var(--warn);font-weight:700}
+.source-badge{margin-left:0}
+.recurring-badge{background:var(--sage2);color:var(--sage)}
+.installment-badge{background:rgba(94,131,145,.15);color:var(--saving)}
 #userSettings .actions{margin-top:12px}
 #settlementModal .formgrid{margin-top:12px}
 @media(max-width:600px){

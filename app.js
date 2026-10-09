@@ -2005,6 +2005,12 @@ function openHistory(type = 'all', mode = 'mine') {
   historyPeriod = selectedMonth; renderPeriodOptions(); show('history',{detail:'period',from:currentView()});
 }
 
+function transactionSource(tx) {
+  if (tx.installmentNumber) return {label:`รายการผ่อน · งวด ${tx.installmentNumber}/${tx.installmentTotal || '?'}`,className:'installment-badge'};
+  if (tx.recurringGenerated || tx.recurringId) return {label:'รายการประจำ',className:'recurring-badge'};
+  return null;
+}
+
 function clearHistoryFilters() {
   historyPeriod = selectedMonth; ledgerMode = 'mine'; $('search').value = ''; $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('projectFilter').value = 'all';
   renderPeriodOptions(); renderHistory();
@@ -2035,8 +2041,9 @@ function txrow(tx, shareOwner = null, context = null) {
   } else {
     meta = `${who(tx.from)} → ${who(tx.to)} · ${date}`;
   }
-  const tag = project?.name || (allocations.length === 1 ? pocketById(allocations[0].pocketId)?.name : '');
-  return `<button class="tx ${tx.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(tx.id)}" onclick="openTx(${jsArg(tx.id)})" aria-label="ดู ${esc(title)} ${money(shown)}"><span class="ico" aria-hidden="true">${icon(tx)}</span><span><span class="tx-title">${esc(title)}${tx.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</span><span class="tx-meta">${esc(meta)}</span>${debtNote ? `<span class="tx-debt-note">${esc(debtNote)}</span>` : ''}${tag ? `<span class="tx-tags"><span class="badge project-badge">${esc(tag)}</span></span>` : ''}</span><span class="amt ${cls}">${sign}${money(shown)}</span></button>`;
+  const tag = project?.name || (allocations.length === 1 ? pocketById(allocations[0].pocketId)?.name : ''), source = transactionSource(tx);
+  const tags = `${source ? `<span class="badge source-badge ${source.className}">${esc(source.label)}</span>` : ''}${tag ? `<span class="badge project-badge">${esc(tag)}</span>` : ''}`;
+  return `<button class="tx ${tx.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(tx.id)}" onclick="openTx(${jsArg(tx.id)})" aria-label="ดู ${esc(title)} ${money(shown)}${source ? ` ${esc(source.label)}` : ''}"><span class="ico" aria-hidden="true">${icon(tx)}</span><span><span class="tx-title">${esc(title)}${tx.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</span><span class="tx-meta">${esc(meta)}</span>${debtNote ? `<span class="tx-debt-note">${esc(debtNote)}</span>` : ''}${tags ? `<span class="tx-tags">${tags}</span>` : ''}</span><span class="amt ${cls}">${sign}${money(shown)}</span></button>`;
 }
 
 function renderHistory() {
@@ -2266,6 +2273,7 @@ function openTx(txid) {
   else if (tx.type === 'income') { const shares = FinanceCore.incomeShares(tx); fields.push([`ส่วนของ${who('Pao')}`,money(shares.Pao)],[`ส่วนของ${who('Tim')}`,money(shares.Tim)]); }
   else if (tx.type === 'saving') for (const allocation of FinanceCore.savingAllocations(tx)) fields.push([`${tx.direction === 'out' ? 'ถอนของ' : 'ออมของ'}${who(allocation.user)}`,`${money(allocation.amount)} · ${pocketById(allocation.pocketId)?.name || 'กระเป๋าเดิม'}`]);
   else fields.push(['คืนเงิน',`${who(tx.from)} → ${who(tx.to)}`]);
+  const source = transactionSource(tx); if (source) fields.push(['ที่มา',source.label]);
   if (tx.projectId) fields.push(['โปรเจกต์',projectById(tx.projectId)?.name || 'โปรเจกต์เดิม']); if (tx.needsReview) fields.push(['สถานะ','รายการจากข้อมูลเดิม ควรตรวจสอบส่วนแบ่ง']);
   $('txDetailContent').innerHTML = `<dl class="tx-info">${fields.map(([name,value]) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`; $('txEditButton').hidden = tx.type === 'settlement'; $('txEditButton').setAttribute('aria-label','แก้ไข '+label); $('txDeleteButton').setAttribute('aria-label','ลบ '+label); openModal('txModal');
 }
