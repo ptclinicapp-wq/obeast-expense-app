@@ -94,20 +94,28 @@ const FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not
 let lastFocused=null;
 function focusables(root){return [...root.querySelectorAll(FOCUSABLE)].filter(el=>!el.hidden&&el.offsetParent!==null)}
 function openModal(id, focusSelector) {
+  if (mobileUi().pending) { mobileUi().after.push(() => openModal(id,focusSelector)); return; }
   const modal = $(id);
   if (!modal) return;
+  const replacing = !!visibleModal();
+  if (!replacing) {
+    history.replaceState({...route,scroll:window.scrollY},'',location.href);
+    history.pushState({...route,modal:id,scroll:window.scrollY},'',location.href);
+  } else history.replaceState({...history.state,modal:id},'',location.href);
   lastFocused = document.activeElement;
-  document.querySelectorAll('.modal.show').forEach(x => closeModal(x.id, false));
+  document.querySelectorAll('.modal.show').forEach(x => closeModal(x.id, false, true));
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');
   document.querySelector('.app').inert = true;
   document.querySelector('.bottom').inert = true;
+  document.querySelector('.mobile-add-dock').inert = true;
+  document.querySelector('.project-add-dock')?.setAttribute('inert','');
   $('fab').inert = true;
   const target = (focusSelector ? modal.querySelector(focusSelector) : null) || focusables(modal)[0] || modal.querySelector('.modalcard');
   target?.focus();
 }
-function closeModal(id, restoreFocus = true) {
+function closeModal(id, restoreFocus = true, fromHistory = false) {
   const modal = $(id);
   if (!modal) return;
   modal.classList.remove('show');
@@ -115,10 +123,16 @@ function closeModal(id, restoreFocus = true) {
   document.body.classList.remove('modal-open');
   document.querySelector('.app').inert = false;
   document.querySelector('.bottom').inert = false;
+  document.querySelector('.mobile-add-dock').inert = false;
+  document.querySelector('.project-add-dock')?.removeAttribute('inert');
   $('fab').inert = false;
   const target = lastFocused;
   lastFocused = null;
   if (restoreFocus && target?.isConnected) target.focus({preventScroll:true});
+  if (!fromHistory && history.state?.modal && !mobileUi().pending) {
+    mobileUi().pending = true;
+    history.back();
+  }
 }
 function visibleModal(){const xs=[...document.querySelectorAll('.modal.show')];return xs[xs.length-1]}
 function closeTopModal() {
@@ -178,24 +192,27 @@ function toastMsg(message, undo = null) {
 }
 function currentView(){return document.querySelector('.view.active')?.id||'home'}
 function syncBackButton() {
-  const canGoBack = currentView() === 'add' || !!route.detail;
+  const canGoBack = currentView() === 'add' || !!route.detail || (currentView() === 'projects' && !!mobileUi().projectId);
   $('backButton').hidden = !canGoBack;
   $('backButton').disabled = !canGoBack;
 }
 function syncAddControls(view = currentView()) {
   document.body.dataset.view = view;
+  syncEntryProjectLabel();
   document.querySelectorAll('button[data-view="add"]').forEach(b => { b.hidden = view === 'add'; b.textContent = '＋ เพิ่มรายการ'; });
 }
 function handleAddControl() { openAddSheet(); }
 function show(view, options = {}) {
   if (!['home','history','summary','projects','settings','add'].includes(view)) return;
   if (visibleModal()) closeTopModal();
+  if (mobileUi().pending) { mobileUi().after.push(() => show(view,options)); return; }
+  if (view === 'projects' && !options.fromPop && !restoringRoute) mobileUi().projectId = options.projectId || (options.restore ? mobileUi().projectId : null);
   const previous = currentView();
   viewScroll[previous] = window.scrollY;
   if (previous === 'add' && !options.saved) stashDraft();
   if (!options.fromPop && !restoringRoute) {
     history.replaceState({...route, scroll:window.scrollY, app:'pt-money'}, '', location.href);
-    route = {app:'pt-money', view, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, recurringEditId:view === 'add' ? form.recurringEditId : null, entryKind:view === 'add' ? entryKindFor() : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
+    route = {app:'pt-money', view, projectId:mobileUi().projectId || null, projectContext:form.projectContext || null, detail:options.detail || (view === 'add' ? 'form' : null), from:options.from || (view === 'add' ? previous : null), editId:view === 'add' ? form.editId : null, recurringEditId:view === 'add' ? form.recurringEditId : null, entryKind:view === 'add' ? entryKindFor() : null, scroll:options.restore ? (viewScroll[view] || 0) : 0};
     const url = '#' + view;
     if (options.replace || previous === 'add') history.replaceState(route, '', url);
     else if (previous !== view || options.detail) history.pushState(route, '', url);
@@ -212,6 +229,7 @@ function show(view, options = {}) {
 }
 function goBack() {
   if (visibleModal()) return closeTopModal();
+  if (currentView() === 'projects' && mobileUi().projectId) return show('projects',{replace:true,restore:false});
   const target = route.from || 'home';
   show(target, {replace:true, restore:true});
 }
@@ -239,21 +257,24 @@ function entryKindFor(value = form) {
   return value.type;
 }
 function entryLabel(kind) { return ({expense:'รายจ่ายทั่วไป',installment:'รายจ่ายผ่อน',monthly:'รายจ่ายประจำเดือน',income:'รายรับ','monthly-income':'รายรับประจำเดือน',saving:'เงินเก็บ'})[kind] || 'รายการ'; }
-function currentDraftKey() { return form.recurringEditId ? 'recurring_' + form.recurringEditId : form.editId || 'new_' + entryKindFor(); }
+function currentDraftKey() { return form.recurringEditId ? 'recurring_' + form.recurringEditId : form.editId || 'new_' + entryKindFor() + (form.projectContext ? '_project_'+form.projectContext : ''); }
 function openEntry(kind = 'expense', options = {}) {
   if (!['expense','installment','monthly','income','monthly-income','saving'].includes(kind)) kind = 'expense';
   const previous = currentView() === 'add' ? route.from || 'home' : currentView();
   if (!options.fresh) stashDraft();
   resetForm();
-  const draftKey = 'new_' + kind;
+  form.projectContext = options.projectId || null;
+  const draftKey = 'new_' + kind + (form.projectContext ? '_project_'+form.projectContext : '');
   if (draftCache.new && entryKindFor(draftCache.new.form) === kind && !draftCache[draftKey]) { draftCache[draftKey] = draftCache.new; delete draftCache.new; }
-  if (options.fresh || !restoreDraft(draftKey)) {
+  const restoredDraft = !options.fresh && restoreDraft(draftKey);
+  if (!restoredDraft) {
     setType(['installment','monthly'].includes(kind) ? 'expense' : kind === 'monthly-income' ? 'income' : kind);
     form.monthly = kind === 'monthly' || kind === 'monthly-income';
     form.installment = kind === 'installment';
     syncInstallmentForm(); updateFormSummary();
     formBaseline = draftSignature();
   }
+  if (options.projectId && projectById(options.projectId) && !restoredDraft) { $('project').value = options.projectId; $('savingProject').value = options.projectId; updateFormSummary(); formBaseline = draftSignature(); }
   show('add', {from:previous});
   if (!form.editId && !$('amount').value) $('amount').focus({preventScroll:true});
 }
@@ -263,7 +284,7 @@ function changeEntryKind(kind) {
   if (form.editId) { setType(kind); return; }
   // The select changes before the old draft is captured; keep its original kind.
   $('entryKind').value = entryKindFor();
-  openEntry(kind);
+  openEntry(kind,{projectId:form.projectContext});
 }
 document.querySelectorAll('button[data-view]').forEach(b=>b.addEventListener('click',()=>b.dataset.view==='add'?handleAddControl():show(b.dataset.view)));
 document.addEventListener('click',e=>{const cat=e.target.closest?.('[data-cat-choice]');if(cat){setCategory(cat.dataset.catChoice);return}if(e.target.closest?.('[data-cat-toggle]'))toggleCats()});
@@ -1077,13 +1098,13 @@ function resumeLatestDraft() {
   const drafts = Object.entries(draftCache).filter(([,x]) => x?.form).sort((a,b) => b[1].updatedAt-a[1].updatedAt);
   if (!drafts.length) return;
   const [key,draft] = drafts[0];
-  if (draft.form.recurringEditId) editRecurring(draft.form.recurringEditId); else if (draft.form.editId) editTx(draft.form.editId); else openEntry(entryKindFor(draft.form));
+  if (draft.form.recurringEditId) editRecurring(draft.form.recurringEditId); else if (draft.form.editId) editTx(draft.form.editId); else openEntry(entryKindFor(draft.form),{projectId:draft.form.projectContext});
 }
 function clearForm() {
   if (draftSignature() !== formBaseline && !confirm(form.editId || form.recurringEditId ? 'คืนค่าฟอร์มเป็นข้อมูลที่บันทึกไว้? การแก้ไขในแบบร่างนี้จะถูกล้าง' : 'ล้างข้อมูลที่กรอกในฟอร์มนี้?')) return;
   const editId = form.editId, recurringEditId = form.recurringEditId, kind = entryKindFor();
   removeDraft(currentDraftKey());
-  if (recurringEditId) editRecurring(recurringEditId); else if (editId) editTx(editId); else openEntry(kind,{fresh:true});
+  if (recurringEditId) editRecurring(recurringEditId); else if (editId) editTx(editId); else openEntry(kind,{fresh:true,projectId:form.projectContext});
   $('amount').focus();
 }
 function dismissLocalNotice() { state.settings.localNoticeDismissed = true; save(); renderAll(); }
@@ -1227,6 +1248,8 @@ function updateViewportInsets() {
   const viewport = window.visualViewport;
   const keyboard = viewport && viewport.scale === 1 ? Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop) : 0;
   document.documentElement.style.setProperty('--keyboard-inset',keyboard + 'px');
+  document.documentElement.style.setProperty('--visible-height',(viewport?.height || window.innerHeight)+'px');
+  document.body.classList.toggle('keyboard-open',keyboard > 100);
   const dock = $('saveDock');
   if (dock?.offsetHeight) document.documentElement.style.setProperty('--save-height',dock.offsetHeight + 'px');
 }
@@ -1247,14 +1270,21 @@ window.addEventListener('beforeunload',event => {
   if ($('storageError') && !$('storageError').hidden && currentView() === 'add' && draftSignature() !== formBaseline) { event.preventDefault(); event.returnValue = ''; }
 });
 window.addEventListener('popstate',event => {
+  if (mobileUi().pending) {
+    mobileUi().pending = false;
+    const next = mobileUi().after.splice(0); next.forEach(action => action());
+    return;
+  }
   stashDraft();
-  if (visibleModal()) closeTopModal();
+  if (visibleModal()) { closeModal(visibleModal().id,true,true); return; }
+  if (event.state?.modal) { history.replaceState({...event.state,modal:null},'',location.href); }
+  mobileUi().projectId = event.state?.projectId || null;
   route = event.state?.app === 'pt-money' ? event.state : {app:'pt-money',view:'home',scroll:0};
   restoringRoute = true;
   if (route.view === 'add') {
     if (route.recurringEditId && state.recurring.some(rec => rec.id === route.recurringEditId)) editRecurring(route.recurringEditId);
     else if (route.editId && state.transactions.some(t => t.id === route.editId)) editTx(route.editId);
-    else openEntry(route.entryKind || 'expense');
+    else openEntry(route.entryKind || 'expense',{projectId:route.projectContext});
   } else show(route.view || 'home',{fromPop:true});
   restoringRoute = false;
   if (route.detail && route.view === 'settings') requestAnimationFrame(() => focusSetting(route.detail));
@@ -1264,7 +1294,7 @@ window.visualViewport?.addEventListener('scroll',updateViewportInsets);
 window.addEventListener('resize',updateViewportInsets);
 new ResizeObserver(updateViewportInsets).observe($('saveDock'));
 
-function openProject(projectId) { show('projects',{detail:'project',from:currentView()}); toggleProject(projectId,true); requestAnimationFrame(() => document.getElementById('project_'+projectId)?.scrollIntoView({block:'start',behavior:'instant'})); }
+function openProject(projectId) { if (!projectById(projectId)) return; show('projects',{detail:'project',projectId,from:currentView()}); }
 applyTheme(); resetForm(); renderAll();
 if (storageReadBlocked) storageFailure('อ่านข้อมูลเดิมไม่ได้ จึงยังไม่บันทึกทับ กรุณาดาวน์โหลดสำเนาหรือเปิดเบราว์เซอร์นี้ใหม่');
 else { try { checkRecurring(); } catch (_) {} }
@@ -1272,11 +1302,13 @@ const initialView = location.hash.slice(1);
 const initialRoute = history.state?.app === 'pt-money' && history.state.view === initialView ? history.state : null;
 if (initialRoute) {
   route = initialRoute;
+  mobileUi().projectId = route.projectId || null;
+  if (route.modal) { delete route.modal; history.replaceState(route,'',location.href); }
   restoringRoute = true;
   if (initialView === 'add') {
     if (route.recurringEditId && state.recurring.some(rec => rec.id === route.recurringEditId)) editRecurring(route.recurringEditId);
     else if (route.editId && state.transactions.some(tx => tx.id === route.editId)) editTx(route.editId);
-    else openEntry(route.entryKind || 'expense');
+    else openEntry(route.entryKind || 'expense',{projectId:route.projectContext});
   } else show(initialView,{fromPop:true});
   restoringRoute = false;
 } else if (['history','summary','projects','settings'].includes(initialView)) show(initialView,{replace:true});
@@ -1806,7 +1838,7 @@ function saveTx() {
   } else if (form.type === 'income') {
     const shares = getIncomeShares(amount);
     if (!FinanceCore.validPair(shares,amount)) return fieldError('incomePao',`ส่วนรายรับต้องรวมเป็น ${money(amount)}`);
-    Object.assign(tx,{category:$('cat').value,shares,owner:FinanceCore.ownerFromShares(shares)});
+    Object.assign(tx,{category:$('cat').value,shares,owner:FinanceCore.ownerFromShares(shares),projectId:form.projectContext || existing?.projectId || null});
   } else {
     const allocations = getSavingAllocations(amount);
     if (allocations.some(item => !Number.isFinite(item.amount) || item.amount < 0) || FinanceCore.toCents(allocations.reduce((sum,item) => sum+item.amount,0)) !== FinanceCore.toCents(amount)) return fieldError(form.savOwner === 'Both' ? 'savingPao' : 'amount',`ส่วนเงินเก็บต้องรวมเป็น ${money(amount)}`);
@@ -1851,7 +1883,7 @@ function saveTx() {
     }
     if (scheduled && recurring) generateDueTransactions(recurring);
     const newlyGeneratedIds = new Set(state.transactions.filter(item => !generatedBefore.has(item.id)).map(item => item.id));
-    save(); removeDraft(draftKey); highlightTxId = tx.id; resetForm(); show(target,{replace:true,restore:!!existing || !!existingRecurring,saved:true});
+    save(); removeDraft(draftKey); highlightTxId = tx.id; resetForm(); show(target,{replace:true,restore:!!existing || !!existingRecurring || (target === 'projects' && !!mobileUi().projectId),saved:true});
     toastMsg(existingRecurring ? 'แก้ไขรายการประจำแล้ว รอบที่บันทึกไปแล้วยังคงเดิม' : existing ? 'บันทึกการแก้ไขแล้ว' : recurring ? 'บันทึกรายการประจำแล้ว' : `บันทึก ${money(amount)} แล้ว`,() => {
       state.transactions = oldTx ? state.transactions.map(item => item.id === tx.id ? oldTx : item) : state.transactions.filter(item => existingRecurring ? !newlyGeneratedIds.has(item.id) : scheduled ? item.recurringId !== recurring.id : item.id !== tx.id);
       if (oldRecurring) state.recurring = state.recurring.map(item => item.id === oldRecurring.id ? oldRecurring : item);
@@ -1988,7 +2020,6 @@ function saveUserSettings() {
 
 function setLedgerMode(mode) {
   ledgerMode = ['mine','shared','all'].includes(mode) ? mode : 'mine';
-  historyPeriod = selectedMonth;
   renderPeriodOptions(); renderHistory();
 }
 
@@ -2011,8 +2042,8 @@ function transactionSource(tx) {
 }
 
 function clearHistoryFilters() {
-  historyPeriod = selectedMonth; ledgerMode = 'mine'; $('search').value = ''; $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('projectFilter').value = 'all';
-  renderPeriodOptions(); renderHistory();
+  $('search').value = ''; $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('projectFilter').value = 'all';
+  renderHistory();
 }
 
 function txrow(tx, shareOwner = null, context = null) {
@@ -2045,17 +2076,25 @@ function txrow(tx, shareOwner = null, context = null) {
   return `<button class="tx ${tx.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(tx.id)}" onclick="openTx(${jsArg(tx.id)})" aria-label="ดู ${esc(title)} ${money(shown)}${source ? ` ${esc(source.label)}` : ''}"><span class="ico" aria-hidden="true">${icon(tx)}</span><span><span class="tx-title">${esc(title)}${tx.needsReview ? '<span class="badge review-badge">ควรตรวจสอบ</span>' : ''}</span><span class="tx-meta">${esc(meta)}</span>${debtNote ? `<span class="tx-debt-note">${esc(debtNote)}</span>` : ''}${tags ? `<span class="tx-tags">${tags}</span>` : ''}</span><span class="amt ${cls}">${sign}${money(shown)}</span></button>`;
 }
 
-function renderHistory() {
+function historyTransactions() {
   ledgerMode = ['mine','shared','all'].includes(ledgerMode) ? ledgerMode : 'mine';
   historyPeriod = $('historyPeriod').value || historyPeriod || selectedMonth;
   const primary = primaryUser(), query = $('search').value.trim().toLowerCase(), type = $('typeFilter').value, owner = $('ownerFilter').value, project = $('projectFilter').value;
   const inMode = tx => ledgerMode === 'mine' ? tx.type !== 'settlement' && Math.abs(FinanceCore.economicShare(tx,primary)) > .001 : ledgerMode === 'shared' ? tx.type === 'settlement' || FinanceCore.isSharedExpense(tx) : tx.type !== 'settlement';
-  const list = [...state.transactions].filter(tx => inMode(tx) && (historyPeriod === 'all' || monthKey(tx.datetime) === historyPeriod) && (type === 'all' || tx.type === type) && (owner === 'all' || tx.owner === owner) && (project === 'all' || (project === 'none' ? !tx.projectId : tx.projectId === project)) && (!query || `${tx.note || ''} ${tx.category || ''} ${tx.payment || ''} ${projectById(tx.projectId)?.name || ''}`.toLowerCase().includes(query))).sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
+  return [...state.transactions].filter(tx => inMode(tx) && (historyPeriod === 'all' || monthKey(tx.datetime) === historyPeriod) && (type === 'all' || tx.type === type) && (owner === 'all' || tx.owner === owner) && (project === 'all' || (project === 'none' ? !tx.projectId : tx.projectId === project)) && (!query || `${tx.note || ''} ${tx.category || ''} ${tx.payment || ''} ${projectById(tx.projectId)?.name || ''}`.toLowerCase().includes(query))).sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
+}
+
+function renderHistory() {
+  const list = historyTransactions(), primary = primaryUser();
   const labels = {mine:['รายการของฉัน',`รายการที่กระทบ ${who(primary)} ในช่วงเวลาที่เลือก`],shared:['หารกัน',`รายการร่วม สำรองจ่าย และคืนเงินระหว่าง ${who('Pao')} กับ ${who('Tim')}`],all:['รายการทั้งหมด','ข้อมูลรายรับ รายจ่าย และเงินเก็บของทั้งสองคน']};
   $('historyTitle').textContent = labels[ledgerMode][0]; $('historySubtitle').textContent = labels[ledgerMode][1];
   for (const [mode,id] of [['mine','ledgerMine'],['shared','ledgerShared'],['all','ledgerAll']]) { $(id).classList.toggle('active',ledgerMode === mode); $(id).setAttribute('aria-selected',String(ledgerMode === mode)); }
-  let day = '';
-  $('historyList').innerHTML = list.map(tx => { const date = new Date(tx.datetime).toLocaleDateString('th-TH',{day:'numeric',month:'long',year:'numeric'}), heading = date !== day ? `<h2 class="date-heading">${date}</h2>` : ''; day = date; return heading + txrow(tx,ledgerMode === 'all' ? null : primary,ledgerMode); }).join('') || '<div class="empty">ไม่พบรายการตามเงื่อนไขนี้<button class="btn" onclick="clearHistoryFilters()">ล้างตัวกรอง</button></div>';
+  $('historyViewToggle').innerHTML = viewToggle('history');
+  $('historyList').innerHTML = transactionView(list,'history',ledgerMode);
+  restoreTablePosition('history');
+  const active = ['typeFilter','ownerFilter','projectFilter'].filter(id => $(id).value !== 'all');
+  $('filterCount').textContent = active.length ? '('+active.length+')' : '';
+  $('activeFilters').textContent = [historyPeriod === 'all' ? 'ทุกช่วงเวลา' : formatMonth(historyPeriod), ...active.map(id => $(id).selectedOptions[0]?.textContent), $('search').value.trim() ? 'ค้นหา: '+$('search').value.trim() : ''].filter(Boolean).join(' · ');
   const personalTotal = ledgerMode === 'mine' ? list.reduce((sum,tx) => sum + (tx.type === 'expense' ? FinanceCore.economicShare(tx,primary) : 0),0) : null;
   $('historyCount').textContent = `${list.length} รายการ · ${historyPeriod === 'all' ? 'ทุกช่วงเวลา' : formatMonth(historyPeriod)}${personalTotal != null ? ` · รายจ่ายของ${who(primary)} ${money(personalTotal)}` : ''}`;
 }
@@ -2156,15 +2195,33 @@ function projectCategoryBreakdown(projectId,user = primaryUser(),monthOnly = fal
 }
 
 function renderProjects() {
-  const user = primaryUser(), expanded = new Set([...document.querySelectorAll('.project-card.expanded')].map(element => element.id));
-  $('projectList').innerHTML = [...state.projects].sort((a,b) => (a.status === 'Archived')-(b.status === 'Archived')).map(project => {
-    const personalSpent = projectSpend(project.id,false,user), grossSpent = projectSpend(project.id), monthSpent = projectSpend(project.id,true,user);
-    const totalBudget = Number(project.budgetTotal || project.budget || 0), personalBudget = project.budgetShares ? Number(project.budgetShares[user] || 0) : 0;
-    const percent = personalBudget > 0 ? personalSpent/personalBudget*100 : 0, categories = projectCategoryBreakdown(project.id,user,true), max = Math.max(1,...Object.values(categories));
-    const transactions = currentMonthTx().filter(tx => tx.projectId === project.id && tx.type !== 'settlement').sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
-    const cardId = 'project_'+project.id, panelId = 'projectPanel_'+project.id;
-    return `<article class="card project-card ${expanded.has(cardId) ? 'expanded' : ''}" id="${esc(cardId)}"><div class="project-title"><h2>${esc(project.icon || '▣')} ${esc(project.name)}</h2><span class="status">${esc(statusLabel(project.status))}</span></div><div class="project-stat personal-project-stat"><div><small>ส่วนของ${esc(who(user))}ทั้งหมด</small><b>${money(personalSpent)}</b></div><div><small>ยอดเต็มทั้งหมด</small><b>${money(grossSpent)}</b></div><div><small>งบส่วนของ${esc(who(user))}</small><b>${personalBudget ? money(personalBudget) : 'ยังไม่ตั้ง'}</b></div><div><small>งบรวมโปรเจกต์</small><b>${money(totalBudget)}</b></div></div>${personalBudget ? `<div class="progress ${personalSpent > personalBudget ? 'over' : ''}"><div style="width:${Math.min(100,percent)}%"></div></div><p class="${personalSpent > personalBudget ? 'expense' : 'muted'}">${personalSpent > personalBudget ? 'เกินงบส่วนตัว '+money(personalSpent-personalBudget) : 'เหลืองบส่วนตัว '+money(personalBudget-personalSpent)} · เดือนที่เลือก ${money(monthSpent)}</p>` : `<p class="muted">เดือนที่เลือก ${money(monthSpent)} · ยังไม่ตั้งงบส่วนของ${esc(who(user))}</p>`}<button class="disclosure" data-disclosure="${esc(cardId)}" onclick="toggleProject(${jsArg(project.id)})" aria-expanded="${expanded.has(cardId)}" aria-controls="${esc(panelId)}">ดูหมวดและรายการของเดือน <span>⌄</span></button><div class="project-detail" id="${esc(panelId)}"><h3>ส่วนของ${esc(who(user))}แยกตามหมวด</h3>${Object.entries(categories).sort((a,b) => b[1]-a[1]).map(([category,value]) => `<div class="chartrow"><span>${esc(category)}</span><div class="bar"><div style="width:${value/max*100}%"></div></div><b>${money(value)}</b></div>`).join('') || '<p class="empty">ยังไม่มีรายจ่ายเดือนนี้</p>'}<h3>รายการเดือนที่เลือก</h3>${transactions.map(tx => txrow(tx,user,'mine')).join('') || '<p class="empty">ยังไม่มีรายการ</p>'}<div class="actions"><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้ไขโปรเจกต์</button>${project.status !== 'Archived' ? `<button class="btn" onclick="archiveProject(${jsArg(project.id)})">เก็บเข้าคลัง</button>` : ''}</div></div></article>`;
-  }).join('') || '<div class="empty">ยังไม่มีโปรเจกต์<button class="soft" onclick="addProject()">＋ เพิ่มโปรเจกต์แรก</button></div>';
+  const user=primaryUser(), selected=projectById(mobileUi().projectId);
+  if (!selected) mobileUi().projectId=null;
+  $('projects').classList.toggle('project-detail-page',!!selected);
+  document.body.classList.toggle('in-project',currentView()==='projects' && !!selected);
+  const list=[...state.projects].sort((a,b)=>(a.status==='Archived')-(b.status==='Archived'));
+  if (!selected) {
+    $('projectList').innerHTML=list.map(project=>`<article class="card project-overview"><button class="project-open" onclick="openProject(${jsArg(project.id)})"><span><b>${esc(project.icon || '▣')} ${esc(project.name)}</b><small>${esc(statusLabel(project.status))} · ${projectTransactions(project.id).length} รายการ</small></span><span><small>รายจ่ายทั้งโปรเจกต์</small><b>${money(projectSpend(project.id))}</b><span aria-hidden="true"> ›</span></span></button></article>`).join('') || '<div class="empty">ยังไม่มีโปรเจกต์<button class="soft" onclick="addProject()">＋ เพิ่มโปรเจกต์แรก</button></div>';
+    return;
+  }
+  const project=selected, personalSpent=projectSpend(project.id,false,user),grossSpent=projectSpend(project.id);
+  const totalBudget=Number(project.budgetTotal || project.budget || 0),personalBudget=Number(project.budgetShares?.[user] || 0);
+  const months=[...new Set(projectTransactions(project.id).map(tx=>monthKey(tx.datetime)))].sort().reverse();
+  let period=ledgerUi().periods.get(project.id) || 'all';
+  if (period!=='all' && !months.includes(period)) {period='all';ledgerUi().periods.set(project.id,period);}
+  const transactions=projectTransactions(project.id,period),categories={};
+  let periodGross=0,periodShare=0;
+  transactions.filter(tx=>tx.type==='expense').forEach(tx=>{const share=FinanceCore.economicShare(tx,user);periodGross+=tx.amount;periodShare+=share;if(share>0)categories[tx.category || 'ไม่ระบุหมวด']=(categories[tx.category || 'ไม่ระบุหมวด'] || 0)+share;});
+  const max=Math.max(1,...Object.values(categories)),periodLabel=period==='all'?'ทุกช่วงเวลา':formatMonth(period);
+  const detailsOpen=$('projectBudgetDetails')?.open || false;
+  const scrollLeft=$('projectList').querySelector('.table-scroll')?.scrollLeft || 0;
+  $('projectList').innerHTML=`<article class="project-card expanded" id="project_${esc(project.id)}"><div class="project-title"><h2 tabindex="-1">${esc(project.icon || '▣')} ${esc(project.name)}</h2><span class="status">${esc(statusLabel(project.status))}</span></div><div class="project-stat compact-project-stats"><div><small>ใช้ทั้งโปรเจกต์</small><b>${money(grossSpent)}</b></div><div><small>${totalBudget && grossSpent>totalBudget?'เกินงบรวม':'เหลืองบรวม'}</small><b>${totalBudget?money(Math.abs(totalBudget-grossSpent)):'ยังไม่ตั้งงบ'}</b></div></div>
+  <div class="project-detail" id="projectPanel_${esc(project.id)}"><div class="project-toolbar"><div class="field"><label for="projectPeriod_${esc(project.id)}" class="sr-only">ช่วงเวลาของโปรเจกต์นี้</label><select class="input" id="projectPeriod_${esc(project.id)}" onchange="setProjectPeriod(${jsArg(project.id)},this.value)"><option value="all" ${period==='all'?'selected':''}>ทุกช่วงเวลา</option>${months.map(month=>`<option value="${esc(month)}" ${period===month?'selected':''}>${esc(formatMonth(month))}</option>`).join('')}</select></div>${viewToggle('projects')}</div>
+  <p class="project-period-summary" role="status">${esc(periodLabel)} · ${transactions.length} รายการ<br><small>รายจ่าย ${money(periodGross)} · ส่วนของ${esc(who(user))} ${money(periodShare)}</small></p>
+  <div class="project-transactions">${transactionView(transactions,'projects','all',project.id)}</div>
+  <details id="projectBudgetDetails" class="filter-panel" ${detailsOpen?'open':''}><summary>ดูรายละเอียดงบและหมวดหมู่</summary><p>งบและยอดสะสมตลอดโปรเจกต์</p><div class="personal-project-stat project-stat"><div><small>ส่วนของ${esc(who(user))}ทั้งหมด</small><b>${money(personalSpent)}</b></div><div><small>งบส่วนตัว</small><b>${personalBudget?money(personalBudget):'ยังไม่ตั้ง'}</b></div><div><small>งบรวม</small><b>${money(totalBudget)}</b></div></div><h3>หมวดรายจ่ายส่วนของ${esc(who(user))} · ${esc(periodLabel)}</h3>${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([category,value])=>`<div class="chartrow"><span>${esc(category)}</span><div class="bar"><div style="width:${value/max*100}%"></div></div><b>${money(value)}</b></div>`).join('') || '<p class="empty">ไม่มีรายจ่ายส่วนของคุณในช่วงนี้</p>'}</details><div class="actions"><button class="soft" onclick="editProject(${jsArg(project.id)})">แก้ไขโปรเจกต์</button>${project.status!=='Archived'?`<button class="btn" onclick="archiveProject(${jsArg(project.id)})">เก็บเข้าคลัง</button>`:''}</div></div></article><div class="project-add-dock"><button class="primary" onclick="addProjectExpense(${jsArg(project.id)})">＋ เพิ่มรายการในโปรเจกต์นี้</button></div>`;
+  const scroll=$('projectList').querySelector('.table-scroll'); if(scroll)scroll.scrollLeft=scrollLeft;
+  restoreTablePosition('project_'+project.id);
 }
 
 function addProject() {
@@ -2436,4 +2493,94 @@ document.addEventListener('input',event => {
 });
 document.addEventListener('change',event => {
   if (event.target?.id === 'pocketOwnerInput') updatePocketPreview();
+});
+
+function ledgerUi() {
+  if (!ledgerUi.value) {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('pao-tim-ledger-views')) || {}; } catch (_) {}
+    ledgerUi.value = {history:saved.history === 'table' ? 'table' : 'list',projects:saved.projects === 'table' ? 'table' : 'list',periods:new Map()};
+  }
+  return ledgerUi.value;
+}
+
+function setTransactionView(scope,view) {
+  if (!['history','projects'].includes(scope) || !['list','table'].includes(view)) return;
+  const ui = ledgerUi(); ui[scope] = view;
+  try { localStorage.setItem('pao-tim-ledger-views',JSON.stringify({history:ui.history,projects:ui.projects})); }
+  catch (_) { ui[scope] = 'list'; }
+  const projectId = document.activeElement?.closest('.project-card')?.id;
+  if (scope === 'history') renderHistory(); else renderProjects();
+  const root = scope === 'history' ? $('historyViewToggle') : document.getElementById(projectId);
+  root?.querySelector(`[data-layout="${ui[scope]}"]`)?.focus();
+}
+
+function viewToggle(scope) {
+  return `<div class="view-toggle" role="group" aria-label="รูปแบบการแสดงผล">${[['list','รายการ'],['table','ตาราง']].map(([value,label]) => `<button class="btn" data-layout="${value}" aria-pressed="${ledgerUi()[scope] === value}" onclick="setTransactionView('${scope}','${value}')">${label}</button>`).join('')}</div>`;
+}
+
+function transactionPresentation(tx) {
+  const label = tx.type === 'saving' ? (tx.direction === 'out' ? 'ถอนเงิน' : 'ออมเข้า') : tx.type === 'settlement' ? 'คืนเงิน' : typeLabel(tx.type);
+  return {label,title:tx.note || tx.category || label,date:new Date(tx.datetime).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'}),gross:money(Math.abs(tx.amount)),share:tx.type === 'settlement' ? '—' : money(Math.abs(FinanceCore.economicShare(tx,primaryUser()))),direction:tx.type === 'settlement' ? `${who(tx.from)} → ${who(tx.to)}` : ''};
+}
+
+function transactionView(list,scope,mode = 'all',projectId = null) {
+  if (!list.length) return `<div class="empty">ไม่พบรายการในช่วงเวลาหรือเงื่อนไขนี้<button class="btn" onclick="${scope === 'history' ? 'clearHistoryFilters()' : `setProjectPeriod(${jsArg(projectId)},'all')`}">${scope === 'history' ? 'ล้างตัวกรอง' : 'ดูทุกช่วงเวลา'}</button>${scope === 'history' ? '<button class="soft" onclick="showAllHistory()">ดูทุกช่วงเวลา</button>' : ''}</div>`;
+  if (ledgerUi()[scope] === 'table') {
+    return `<p class="table-hint muted">เลื่อนตารางซ้าย–ขวาเพื่อดูทุกคอลัมน์ · กดชื่อรายการเพื่อดูหรือแก้ไข</p><div class="table-scroll" role="region" aria-label="ตารางรายการ เลื่อนซ้ายขวาได้" tabindex="0"><table class="transaction-table"><caption class="sr-only">รายการ ${list.length} รายการ</caption><thead><tr>${['รายการ',`ส่วนของ${who(primaryUser())}`,'ยอดเต็ม','ประเภท','หมวดหมู่',...(scope === 'history' ? ['โปรเจกต์'] : [])].map(label => `<th scope="col">${esc(label)}</th>`).join('')}</tr></thead><tbody>${list.map(tx => {
+      const item = transactionPresentation(tx), source = transactionSource(tx);
+      return `<tr data-tx-id="${esc(tx.id)}" class="${tx.id === highlightTxId ? 'tx-highlight' : ''}"><td class="sticky-name"><button class="table-title" onclick="openTx(${jsArg(tx.id)})">${esc(item.title)}</button><small>${esc(item.date)}</small>${source ? `<small>${esc(source.label)}</small>` : ''}${tx.needsReview ? '<small>ควรตรวจสอบ</small>' : ''}</td><td class="number">${item.share}</td><td class="number">${item.gross}</td><td>${esc(item.label)}${item.direction ? `<small>${esc(item.direction)}</small>` : ''}</td><td>${esc(tx.category || '—')}</td>${scope === 'history' ? `<td>${esc(projectById(tx.projectId)?.name || '—')}</td>` : ''}</tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+  let day = '';
+  return list.map(tx => {
+    const item = transactionPresentation(tx), heading = item.date !== day ? `<h3 class="date-heading">${esc(item.date)}</h3>` : ''; day = item.date;
+    // Both contexts show full and personal amounts explicitly on mobile.
+    const source = transactionSource(tx);
+    return heading+`<button class="project-transaction tx ${tx.id === highlightTxId ? 'tx-highlight' : ''}" data-tx-id="${esc(tx.id)}" onclick="openTx(${jsArg(tx.id)})"><span><b>${esc(item.title)}</b><small>${esc(item.label)}${item.direction ? ' · '+esc(item.direction) : ''} · ${esc(tx.category || '—')}${scope === 'history' && projectById(tx.projectId) ? ' · '+esc(projectById(tx.projectId).name) : ''}${tx.needsReview ? ' · ควรตรวจสอบ' : ''}</small>${source ? `<span class="badge source-badge ${source.className}">${esc(source.label)}</span>` : ''}</span><span class="project-amounts"><span><small>ยอดเต็ม</small><b>${item.gross}</b></span><span><small>ส่วนของ${esc(who(primaryUser()))}</small><b>${item.share}</b></span></span></button>`;
+  }).join('');
+}
+
+function projectTransactions(projectId,period = 'all') {
+  return state.transactions.filter(tx => tx.projectId === projectId && tx.type !== 'settlement' && (period === 'all' || monthKey(tx.datetime) === period)).sort((a,b) => new Date(b.datetime)-new Date(a.datetime));
+}
+
+function setProjectPeriod(projectId,period) {
+  ledgerUi().periods.set(projectId,period);
+  renderProjects();
+  document.getElementById('projectPeriod_'+projectId)?.focus();
+}
+
+function mobileUi() { return mobileUi.value || (mobileUi.value = {pending:false,after:[],projectId:null,tablePositions:new Map()}); }
+function restoreTablePosition(key) {
+  requestAnimationFrame(() => {
+    const root=key==='history' ? $('historyList') : $(key);
+    const table=root?.querySelector('.table-scroll');
+    if (table?.offsetParent) table.scrollLeft=mobileUi().tablePositions.get(key) || 0;
+  });
+}
+document.addEventListener('scroll',event => {
+  const table=event.target;
+  if (!table.matches?.('.table-scroll') || !table.offsetParent) return;
+  const key=table.closest('.project-card')?.id || 'history';
+  mobileUi().tablePositions.set(key,table.scrollLeft);
+},true);
+function addProjectExpense(projectId) { openEntry('expense',{projectId}); }
+function syncEntryProjectLabel() {
+  const label=$('entryProjectLabel'); if (!label) return;
+  const selected=form.type==='saving' ? $('savingProject').value : form.type==='income' ? (form.projectContext || state.transactions.find(tx=>tx.id===form.editId)?.projectId) : $('project').value;
+  const project=projectById(selected);
+  label.hidden=!project; label.textContent=project ? 'บันทึกในโปรเจกต์: '+project.name : '';
+}
+document.addEventListener('change',syncEntryProjectLabel);
+function showAllHistory() { historyPeriod='all'; renderPeriodOptions(); clearHistoryFilters(); }
+document.addEventListener('visibilitychange',() => { if (document.visibilityState === 'hidden') stashDraft(); });
+document.addEventListener('focusin',event => {
+  if (!event.target.matches('input,select,textarea')) return;
+  setTimeout(() => {
+    if (document.activeElement !== event.target) return;
+    const bounds=event.target.getBoundingClientRect(), bottom=window.visualViewport?.height || innerHeight;
+    const dock=currentView()==='add' ? $('saveDock').getBoundingClientRect().top : bottom;
+    if (bounds.bottom > Math.min(bottom,dock)-12) event.target.scrollIntoView({block:'center',behavior:'smooth'});
+  },300);
 });
