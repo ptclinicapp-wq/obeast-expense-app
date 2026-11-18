@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Pao & Tim Money</title>
-<link rel="stylesheet" href="./styles.css?v=20261111-mobile-2">
+<link rel="stylesheet" href="./styles.css?v=20261119-debt-details">
 </head>
 <body>
 <div class="app">
@@ -64,8 +64,17 @@
   <article class="card debt expand-card" id="debtCard">
     <div class="sect"><h2 id="debtTitle">ระหว่างเปา & ติม</h2><span class="status">ยอดสะสมทุกเดือน</span></div>
     <div class="debt-main"><div><span id="debtLabel">ยอดสุทธิ</span><div id="debtAmt" class="value">฿0</div></div><div id="debtActions" class="debt-actions"></div></div><p id="debtDesc" class="muted-white"></p>
-    <button class="disclosure" data-disclosure="debtCard" onclick="toggleCard('debtCard')" aria-expanded="false" aria-controls="debtPanel">ดูรายการต้นทาง <span aria-hidden="true">⌄</span></button>
-    <div class="detail" id="debtPanel"><div class="mini3"><div><small id="grossTimLabel">ยอดฝั่งติม</small><b id="grossTim"></b></div><div><small id="grossPaoLabel">ยอดฝั่งเปา</small><b id="grossPao"></b></div><div><small>ยอดสุทธิ</small><b id="debtNet2"></b></div></div><div id="debtTxDetail"></div><button class="btn debt-ledger-link" type="button" onclick="openSharedLedger()">ดูบัญชีหารกันทั้งหมด</button></div>
+    <button class="disclosure" data-disclosure="debtCard" onclick="toggleCard('debtCard')" aria-expanded="false" aria-controls="debtPanel">ดูรายละเอียด / แยกเดือน <span aria-hidden="true">⌄</span></button>
+    <div class="detail" id="debtPanel">
+      <div class="debt-period-field"><label for="debtPeriod">ช่วงเวลาที่ต้องการดู</label><select id="debtPeriod" class="input" onchange="setDebtPeriod(this.value)"></select></div>
+      <p id="debtPeriodHint" class="muted-white"></p>
+      <div class="mini3"><div><small id="grossTimLabel">เรียกเก็บจากติม</small><b id="grossTim"></b></div><div><small id="grossPaoLabel">เรียกเก็บจากเปา</small><b id="grossPao"></b></div><div><small>เรียกเก็บรวมก่อนหักลบ</small><b id="debtGrossTotal"></b></div></div>
+      <div id="debtPeriodSummary" class="debt-period-summary" aria-live="polite"></div>
+      <div class="debt-list-heading"><h3>รายการต้นทาง</h3><span id="debtRowCount"></span></div>
+      <div id="debtTxDetail"></div>
+      <div class="debt-period-total"><span id="debtNetLabel">ยอดสุทธิ</span><b id="debtNet2"></b></div>
+      <button class="btn debt-ledger-link" type="button" onclick="openSharedLedger(debtPeriod)">ดูบัญชีหารกันในช่วงนี้</button>
+    </div>
   </article>
   <article class="card"><div class="sect"><h2>รายการล่าสุด</h2><button class="soft" onclick="openHistory('all')">ดูทั้งหมด</button></div><div id="recent"></div></article>
   <article class="card" id="quickCard"><div class="sect"><div><h2>เพิ่มด่วน</h2><p class="muted">ใช้รายละเอียดเดิม บันทึกวันที่วันนี้</p></div></div><div class="quickrow" id="quick"></div></article>
@@ -293,5 +302,5 @@
 <div id="txModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle" aria-hidden="true"><div class="modalcard" tabindex="-1"><div class="sect"><h2 id="txModalTitle">รายละเอียดรายการ</h2><button class="btn" onclick="closeModal('txModal')" aria-label="ปิดรายละเอียดรายการ">ปิด</button></div><div id="txDetailContent"></div><div class="actions"><button id="txDeleteButton" class="danger" onclick="deleteTx(detailTxId)">ลบรายการ</button><button id="txEditButton" class="primary" onclick="editFromDetail()">แก้ไขรายการ</button></div></div></div>
 <script src="./vendor/exceljs.min.js?v=4.4.0" defer></script>
 <script src="./finance-core.js?v=20261111-mobile-2" defer></script>
-<script src="./app.js?v=20261111-mobile-2" defer></script>
+<script src="./app.js?v=20261119-debt-details" defer></script>
 </body></html>

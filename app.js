@@ -1295,6 +1295,7 @@ window.addEventListener('resize',updateViewportInsets);
 new ResizeObserver(updateViewportInsets).observe($('saveDock'));
 
 function openProject(projectId) { if (!projectById(projectId)) return; show('projects',{detail:'project',projectId,from:currentView()}); }
+var debtPeriod = 'all';
 applyTheme(); resetForm(); renderAll();
 if (storageReadBlocked) storageFailure('อ่านข้อมูลเดิมไม่ได้ จึงยังไม่บันทึกทับ กรุณาดาวน์โหลดสำเนาหรือเปิดเบราว์เซอร์นี้ใหม่');
 else { try { checkRecurring(); } catch (_) {} }
@@ -1976,8 +1977,8 @@ function renderUserLabels() {
   $('expenseLabel').textContent = `รายจ่ายของ${who(primary)}`;
   $('expenseHint').textContent = `รวมส่วนของ${who(primary)}ในรายการหาร`;
   $('debtTitle').textContent = `ระหว่าง${who('Pao')} & ${who('Tim')}`;
-  $('grossPaoLabel').textContent = `${who('Pao')}สำรองให้${who('Tim')}`;
-  $('grossTimLabel').textContent = `${who('Tim')}สำรองให้${who('Pao')}`;
+  $('grossPaoLabel').textContent = `เรียกเก็บจาก${who('Pao')}`;
+  $('grossTimLabel').textContent = `เรียกเก็บจาก${who('Tim')}`;
   const labels = {
     owner:{Pao:`${who('Pao')}${primary === 'Pao' ? ' · ของฉัน' : ' · อีกคน'}`,Tim:`${who('Tim')}${primary === 'Tim' ? ' · ของฉัน' : ' · อีกคน'}`,Both:'หารกัน'},
     payer:{Pao:who('Pao'),Tim:who('Tim'),Both:'ช่วยกันจ่าย'},
@@ -2023,10 +2024,10 @@ function setLedgerMode(mode) {
   renderPeriodOptions(); renderHistory();
 }
 
-function openSharedLedger() {
+function openSharedLedger(period = selectedMonth) {
   ledgerMode = 'shared';
   $('typeFilter').value = 'all'; $('ownerFilter').value = 'all'; $('search').value = ''; $('projectFilter').value = 'all';
-  historyPeriod = selectedMonth; renderPeriodOptions(); show('history',{detail:'shared',from:currentView()});
+  historyPeriod = period; renderPeriodOptions(); show('history',{detail:'shared',from:currentView()});
 }
 
 function openHistory(type = 'all', mode = 'mine') {
@@ -2119,18 +2120,54 @@ function renderBudget() {
   $('budgetDetail').innerHTML = rows.map(row => `<div class="detail-row"><div class="detail-head"><div><b>${esc(row.category)}</b><br><small>${row.limit ? 'งบ '+money(row.limit) : 'ยังไม่ตั้งงบหมวดนี้'}</small></div><div class="detail-right"><b>${money(row.used)}</b>${row.limit ? `<br><small class="${row.used > row.limit ? 'expense' : 'muted'}">${row.used > row.limit ? 'เกิน '+money(row.used-row.limit) : 'เหลือ '+money(row.limit-row.used)}</small>` : ''}</div></div></div>`).join('') || '<p class="empty">ยังไม่มีรายจ่ายในเดือนนี้</p>';
 }
 
+function setDebtPeriod(period) {
+  debtPeriod = period;
+  renderDebt();
+}
+
+function debtDirection(net) {
+  return net > 0 ? `${who('Tim')}ค้าง${who('Pao')}` : net < 0 ? `${who('Pao')}ค้าง${who('Tim')}` : 'ไม่มีใครค้างใคร';
+}
+
 function debtSourceRows() {
   return state.transactions.map(tx => ({tx,delta:FinanceCore.debtDeltaPao(tx)})).filter(row => Math.abs(row.delta) > .001).sort((a,b) => new Date(b.tx.datetime)-new Date(a.tx.datetime));
 }
 
 function renderDebt() {
-  const rows = debtSourceRows(), expenses = rows.filter(row => row.tx.type === 'expense'), net = debtFor();
-  const timGross = expenses.filter(row => row.delta > 0).reduce((sum,row) => sum+row.delta,0), paoGross = expenses.filter(row => row.delta < 0).reduce((sum,row) => sum-row.delta,0);
-  $('grossTim').textContent = money(timGross); $('grossPao').textContent = money(paoGross); $('debtNet2').textContent = money(Math.abs(net));
+  const allRows = debtSourceRows(), net = debtFor();
+  const months = [...new Set([monthKey(new Date()), ...allRows.map(({tx}) => monthKey(tx.datetime)), ...(debtPeriod !== 'all' ? [debtPeriod] : [])])].sort().reverse();
+  $('debtPeriod').innerHTML = '<option value="all">ทุกเดือน · Total</option>' + months.map(month => `<option value="${esc(month)}">${formatMonth(month)}</option>`).join('');
+  $('debtPeriod').value = debtPeriod;
+  const rows = allRows.filter(({tx}) => debtPeriod === 'all' || monthKey(tx.datetime) === debtPeriod);
+  const sum = predicate => FinanceCore.fromCents(rows.filter(predicate).reduce((total,row) => total + Math.abs(FinanceCore.toCents(row.delta)),0));
+  const timGross = sum(row => row.tx.type === 'expense' && row.delta > 0);
+  const paoGross = sum(row => row.tx.type === 'expense' && row.delta < 0);
+  const timReturned = sum(row => row.tx.type === 'settlement' && row.delta < 0);
+  const paoReturned = sum(row => row.tx.type === 'settlement' && row.delta > 0);
+  const periodNet = FinanceCore.debtFor(rows.map(row => row.tx));
+  const opening = debtPeriod === 'all' ? 0 : FinanceCore.debtFor(allRows.filter(({tx}) => monthKey(tx.datetime) < debtPeriod).map(row => row.tx));
+  const closing = FinanceCore.fromCents(FinanceCore.toCents(opening) + FinanceCore.toCents(periodNet));
+  $('grossTim').textContent = money(timGross); $('grossPao').textContent = money(paoGross);
+  $('debtGrossTotal').textContent = money(FinanceCore.fromCents(FinanceCore.toCents(timGross) + FinanceCore.toCents(paoGross)));
+  $('debtNet2').textContent = `${debtDirection(closing)} · ${money(Math.abs(closing))}`;
+  $('debtNetLabel').textContent = debtPeriod === 'all' ? 'Total · ยอดค้างสุทธิทุกเดือน' : 'ยอดค้างสะสมถึงสิ้นเดือน';
+  $('debtPeriodHint').textContent = debtPeriod === 'all' ? 'รวมทุกรายการและหักเงินที่คืนแล้ว' : `${formatMonth(debtPeriod)} · เงินคืนแสดงตามเดือนที่โอน ไม่ได้ระบุว่าคืนบิลเดือนไหน`;
+  const summaryRow = (label,value) => `<div><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
+  $('debtPeriodSummary').innerHTML = (debtPeriod === 'all' ? '' : summaryRow('ยอดยกมาต้นเดือน',`${debtDirection(opening)} · ${money(Math.abs(opening))}`))
+    + summaryRow(`${who('Tim')}คืนให้${who('Pao')}แล้ว`,money(timReturned))
+    + summaryRow(`${who('Pao')}คืนให้${who('Tim')}แล้ว`,money(paoReturned))
+    + summaryRow('สุทธิจากรายการในช่วงนี้',`${periodNet === 0 ? 'หักลบกันพอดี' : periodNet > 0 ? `ฝั่ง${who('Tim')}เพิ่มสุทธิ` : `ฝั่ง${who('Pao')}เพิ่มสุทธิ`} · ${money(Math.abs(periodNet))}`);
+  $('debtRowCount').textContent = `${rows.filter(row => row.tx.type === 'expense').length} บิล · ${rows.filter(row => row.tx.type === 'settlement').length} รายการคืนเงิน`;
   $('debtLabel').textContent = net > 0 ? `${who('Tim')}ค้าง${who('Pao')}` : net < 0 ? `${who('Pao')}ค้าง${who('Tim')}` : 'ยอดสุทธิ';
   $('debtAmt').textContent = money(Math.abs(net)); $('debtDesc').textContent = net === 0 ? 'ไม่มีใครค้างใคร' : 'ยอดสะสมหลังหักรายการคืนเงินแล้ว';
   $('debtActions').innerHTML = Math.abs(net) > .01 ? '<button onclick="event.stopPropagation();settleDebt()">บันทึกคืนเงิน</button>' : '';
-  $('debtTxDetail').innerHTML = rows.slice(0,5).map(({tx,delta}) => `<div class="debt-tx"><div class="ico">${icon(tx)}</div><div><b>${esc(tx.note || tx.category || 'คืนเงิน')}</b><small>${tx.type === 'settlement' ? `${who(tx.from)} → ${who(tx.to)}` : `${delta > 0 ? who('Tim')+'ค้าง'+who('Pao') : who('Pao')+'ค้าง'+who('Tim')} ${money(Math.abs(delta))}`}</small><small>${new Date(tx.datetime).toLocaleDateString('th-TH')}</small></div><b>${money(Math.abs(delta))}</b></div>`).join('') || '<div style="padding:8px 0">ยังไม่มีรายการระหว่างกัน</div>';
+  $('debtTxDetail').innerHTML = rows.map(({tx,delta}) => {
+    const settlement = tx.type === 'settlement', shares = settlement ? null : FinanceCore.expenseShares(tx), paid = settlement ? null : FinanceCore.expensePaid(tx);
+    const details = settlement ? `${who(tx.from)}โอนคืน${who(tx.to)} · ลดหนี้ ${money(tx.amount)}` : `ยอดบิล ${money(tx.amount)} · ${tx.category || 'ไม่ระบุหมวด'}`;
+    const split = settlement ? '' : `<small>${esc(`${who('Pao')}จ่าย ${money(paid.Pao)} · ${who('Tim')}จ่าย ${money(paid.Tim)}`)}</small><small>${esc(`ส่วนของ${who('Pao')} ${money(shares.Pao)} · ส่วนของ${who('Tim')} ${money(shares.Tim)}`)}</small>`;
+    const project = projectById(tx.projectId);
+    return `<div class="debt-tx debt-source-row" data-debt-tx-id="${esc(tx.id)}"><div class="ico" aria-hidden="true">${icon(tx)}</div><div><b>${esc(tx.note || tx.category || 'คืนเงิน')}</b><small>${new Date(tx.datetime).toLocaleDateString('th-TH')}${project ? ' · '+esc(project.name) : ''}</small><small>${esc(details)}</small>${split}<strong class="debt-row-effect">${esc(settlement ? 'คืนเงินแล้ว' : debtDirection(delta))} ${money(Math.abs(delta))}</strong></div><button type="button" onclick="openTx(${jsArg(tx.id)})" aria-label="ดูรายละเอียด ${esc(tx.note || tx.category || 'คืนเงิน')}">ดูรายการ</button></div>`;
+  }).join('') || '<p class="debt-empty">ไม่มีรายการเรียกเก็บหรือคืนเงินในช่วงนี้</p>';
 }
 
 function settleDebt() {
