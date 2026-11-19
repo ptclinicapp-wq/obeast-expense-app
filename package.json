@@ -6,23 +6,27 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mts",
-    "lint": "eslint . --ignore-pattern out --ignore-pattern .next"
+    "lint": "eslint ."
   },
   "dependencies": {
-    "next": "16.2.6",
+    "@vitejs/plugin-react": "^6.0.5",
+    "dexie": "^4.4.4",
+    "dexie-react-hooks": "^4.4.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "react-router-dom": "^7.18.2",
+    "vite": "^8.2.1"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
     "typescript": "5.9.3"
   },
   "type": "module"

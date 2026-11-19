@@ -4,6 +4,8 @@
 /node_modules
 /.npm-cache/
 /.codex-dev*.log
+/.codex-vite*.log
+/.codex-chrome*
 
 # local scratch notebook (not part of the web app)
 /expense app.ipynb
@@ -41,6 +43,7 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
 /.wrangler/
 /outputs/
