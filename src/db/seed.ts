@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db } from "./db.ts";
 import type {
   AppSettingRecord,
   BudgetRecord,
@@ -391,7 +391,7 @@ export async function seedDatabase() {
     new Set(paymentMethods.map((record) => record.id)),
   );
   const projectSeeds = missingById(
-    defaultProjects(),
+    defaultProjects().filter((project) => !settings.some((setting) => setting.key === `deletedProject:${project.id}` && setting.value === true)),
     new Set(projects.map((record) => record.id)),
   );
   const pocketSeeds = missingById(

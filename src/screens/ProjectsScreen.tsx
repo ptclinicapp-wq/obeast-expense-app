@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { db } from "@/db/db";
+import { deleteProject } from "@/db/projects";
 import { useAppData } from "@/db/hooks";
 import { Modal } from "@/components/Modal";
 import { TransactionRow } from "@/components/TransactionRow";
@@ -45,6 +46,24 @@ export function ProjectsScreen() {
   const [draft, setDraft] = useState<ProjectDraft>(blankProjectDraft);
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState("");
+  const [deletingProject, setDeletingProject] = useState<ProjectRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const confirmDelete = async () => {
+    if (!deletingProject || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteProject(deletingProject.id);
+      setExpandedId(null);
+      setDeletingProject(null);
+    } catch {
+      setDeleteError("ลบโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const openProjectModal = (project?: ProjectRecord) => {
     setEditingProject(project ?? null);
@@ -111,7 +130,7 @@ export function ProjectsScreen() {
           <p>รวมรายจ่ายพิเศษเป็นเรื่องๆ เช่น Japan Trip โดยยังเก็บ Category เดิมไว้</p>
         </div>
         <button className="primary" type="button" onClick={() => openProjectModal()}>
-          ＋ Project
+          ＋ เพิ่มโปรเจกต์
         </button>
       </div>
 
@@ -278,6 +297,12 @@ export function ProjectsScreen() {
                           Archive
                         </button>
                       )}
+                      <button className="danger" type="button" onClick={() => {
+                        setDeleteError("");
+                        setDeletingProject(project);
+                      }}>
+                        ลบโปรเจกต์
+                      </button>
                     </div>
                   </div>
                 )}
@@ -288,6 +313,22 @@ export function ProjectsScreen() {
           <div className="card muted">ยังไม่มี Project</div>
         )}
       </div>
+
+      {deletingProject && (
+        <Modal title={`ลบโปรเจกต์ “${deletingProject.name}”?`} onClose={() => {
+          if (!deleting) setDeletingProject(null);
+        }}>
+          <p>ลบเฉพาะโปรเจกต์ รายการค่าใช้จ่ายและยอดเงินเดิมยังอยู่ โดยจะเปลี่ยนเป็น “ไม่มีโปรเจกต์”</p>
+          <p className="muted">ยกเลิกการเชื่อมโยงกับเงินเก็บและรายการประจำด้วย หากตั้งเป็นโปรเจกต์เริ่มต้น จะเปลี่ยนค่าเริ่มต้นเป็น “ไม่มีโปรเจกต์”</p>
+          {deleteError && <div className="form-error" role="alert">{deleteError}</div>}
+          <div className="actions">
+            <button className="btn" type="button" disabled={deleting} onClick={() => setDeletingProject(null)}>ยกเลิก</button>
+            <button className="danger" type="button" disabled={deleting} onClick={confirmDelete}>
+              {deleting ? "กำลังลบ…" : "ยืนยันลบโปรเจกต์"}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {modalOpen && (
         <Modal
